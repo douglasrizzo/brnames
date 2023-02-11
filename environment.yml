@@ -1,0 +1,13 @@
+name: brnames
+channels:
+  - nvidia
+  - pytorch
+dependencies:
+  - cudatoolkit=11.1
+  - python=3.10.*
+  - pytorch::pytorch
+  - pip
+  - pip:
+      - tqdm
+      - tensorboard
+      - torch-tb-profiler
