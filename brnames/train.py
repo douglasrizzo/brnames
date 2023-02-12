@@ -253,9 +253,9 @@ def get_config() -> Config:
     )
     group.add_argument(
         "--gen",
-        dest="gen",
-        action="store_true",
-        help="Generate a sample of names into a text file and exit.",
+        type=int,
+        default=None,
+        help="Generate names into a text file and exit.",
     )
 
     group = parser.add_argument_group("Model parameters")
@@ -369,9 +369,9 @@ if __name__ == "__main__":
             lr_scheduler.load_state_dict(state_dicts["lr_scheduler"])
             last_iter = state_dicts["iter"]
             print("Loaded checkpoint file")
-            if config.gen:
+                if config.gen is not None:
                 sample = config.posprocess_generated_words(
-                    model.generate_many(device=config.device, n=1000))
+                        model.generate_many(device=config.device, n=config.gen))
                 with open("sample.txt", "w", encoding="utf-8") as f:
                     f.write("\n".join(sample))
                 exit()
