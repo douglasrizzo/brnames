@@ -140,7 +140,8 @@ class Config:
 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.session_name = f"{self.vocab_size}_{self.block_size}_{n_embd}_{n_head}_{n_layer}"
-        self.writer = SummaryWriter(str(Path("runs") / self.session_name))
+        self.session_dir = Path("runs") / self.session_name
+        self.writer = SummaryWriter(self.session_dir)
 
     def encode(self, s: str):
         """Take a string, output a list of integers."""
@@ -356,9 +357,8 @@ if __name__ == "__main__":
                                                               verbose=True,
                                                                 factor=config.lr_factor)
 
-    ckpt_path = Path("weights")
-    ckpt_path.mkdir(exist_ok=True)
-    ckpt_path = ckpt_path / f"{config.session_name}.pth"
+        config.session_dir.mkdir(exist_ok=True)
+        ckpt_path = config.session_dir / "weights.pt"
 
     last_iter = 0
     if ckpt_path.is_file():
