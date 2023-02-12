@@ -1,8 +1,12 @@
-from typing import Optional, Union
+from typing import List, Tuple, Union
 
 import torch
 import torch.nn.functional as F
 from torch import nn
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+
+import pytorch_lightning as pl
+from pytorch_lightning.callbacks import LearningRateMonitor
 
 
 class SelfAttentionHead(nn.Module):
@@ -85,7 +89,9 @@ class Block(nn.Module):
         return x
 
 
-class GPTLanguageModel(nn.Module):
+class Transformer(pl.LightningModule):
+
+    itos = {i: ch for i, ch in enumerate(sorted(list(set('.abcdefghijklmnopqrstuvwxyz'))))}
 
     def __init__(
         self,
@@ -95,9 +101,23 @@ class GPTLanguageModel(nn.Module):
         n_head: int,
         dropout: float,
         n_layer: int,
+        optimizer: str,
+        weight_decay: float,
+        momentum: float,
+        betas: Tuple[float, float],
+        lr: float,
+        lr_patience: int,
+        lr_factor: float,
     ):
         super().__init__()
-        self.__block_size = block_size
+        self.optimizer = optimizer
+        self.weight_decay = weight_decay
+        self.momentum = momentum
+        self.lr = lr
+        self.betas = betas
+        self.lr_patience = lr_patience
+        self.lr_factor = lr_factor
+        self.block_size = block_size
         # each token directly reads off the logits for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
@@ -117,7 +137,9 @@ class GPTLanguageModel(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx: torch.Tensor, targets: Optional[torch.Tensor] = None):
+    def forward(self, idx: torch.Tensor):
+        # if idx.ndim == 1:
+        #     idx.unsqueeze_(0)
         B, T = idx.shape
         # idx and targets are both (B,T) tensor of integers
         tok_emb = self.token_embedding_table(idx)  # (B,T,C)
@@ -126,36 +148,78 @@ class GPTLanguageModel(nn.Module):
         x = self.blocks(x)  # (B,T,C)
         x = self.ln_f(x)  # (B,T,C)
         logits = self.lm_head(x)  # (B,T,vocab_size)
-        loss = None if targets is None else F.cross_entropy(logits[:, -1, :], targets)
-        return logits, loss
+        return logits
+
+    def training_step(self, batch, batch_idx):
+        X, Y = batch
+        logits = self(X)
+        loss = F.cross_entropy(logits[:, -1, :], Y)
+        self.log("Loss/Train", loss.item())
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        X, Y = batch
+        logits = self(X)
+        loss = F.cross_entropy(logits[:, -1, :], Y)
+        self.log("Loss/Val", loss.item())
+        return loss
+
+    def validation_epoch_end(self, outputs) -> None:
+        print(f"Sample: {self.posprocess_generated_words(self.generate(10))}")
+
+    def configure_optimizers(self):
+        if self.optimizer == "sgd":
+            optimizer = torch.optim.SGD(
+                params=self.parameters(),
+                lr=self.lr,
+                momentum=self.momentum,
+                weight_decay=self.weight_decay,
+            )
+        elif self.optimizer == "adam":
+            optimizer = torch.optim.Adam(params=self.parameters(),
+                                         lr=self.lr,
+                                         betas=self.betas,
+                                         weight_decay=self.weight_decay)
+        elif self.optimizer == "adamw":
+            optimizer = torch.optim.AdamW(params=self.parameters(),
+                                          lr=self.lr,
+                                          betas=self.betas,
+                                          weight_decay=self.weight_decay)
+        else:
+            raise ValueError(f"Unrecognized optimizer '{self.optimizer}'")
+
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": ReduceLROnPlateau(optimizer, "min", self.lr_factor, self.lr_patience),
+            "monitor": "Loss/Val", }
+        # "lr_monitor": LearningRateMonitor(logging_interval='step'), }
 
     @torch.no_grad()
-    def generate(self, device: Union[torch.device, int, str]):
-        inpute = torch.tensor([[0] * self.__block_size], device=device)
-        while True:
-            logits, _ = self(inpute)
-            probs = F.softmax(logits, dim=-1)  # (B, C)
-            # sample from the distribution
-            idx_next = torch.multinomial(probs, num_samples=1)  # (B, 1)
-            # append sampled index to the running sequence
-            inpute = torch.cat([inpute[:, 1:], idx_next.unsqueeze(0)], dim=1)
-            if idx_next == 0:
-                break
-        return inpute
-
-    @torch.no_grad()
-    def generate_many(self, device: Union[torch.device, int, str], n: int = 2):
-        inpute = torch.tensor([[0] * self.__block_size] * n, device=device)
+    def generate(self, n: int = 2):
+        inpute = torch.tensor([[0] * self.block_size] * n, device=self.device)
         # generate until first character is not a . anymore
         while inpute[0, 0] == 0:
-            logits, _ = self(inpute)  # (B, C)
+            logits = self(inpute)  # (B, C)
             # to generate the next character of ther word, we only care about the last the step in the logits
             logits = logits[:, -1, :]  # (B, C)
             probs = F.softmax(logits, dim=-1)  # (B, C)
             # sample from the distribution
             idx_next = torch.multinomial(probs, num_samples=1)  # (B, 1)
             if idx_next.ndim == 1:
-                idx_next.unsqueeze(0)
+                idx_next.unsqueeze_(0)
             # append sampled index to the running sequence
             inpute = torch.cat([inpute[:, 1:], idx_next], dim=1)
         return inpute
+
+    @staticmethod
+    def decode(l: List[int]):
+        """Take a list of integers, output a string"""
+        return "".join([Transformer.itos[i] for i in l])
+
+    @staticmethod
+    def posprocess_generated_words(output: torch.Tensor) -> List[str]:
+        samples = [Transformer.decode(out).strip(".") for out in output.tolist()]
+        samples = [
+            sample[:sample.find(".")] if sample.find(".") != -1 else sample for sample in samples]
+
+        return samples

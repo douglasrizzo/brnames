@@ -1,13 +1,16 @@
 import argparse
 from argparse import ArgumentParser
 from pathlib import Path
-from typing import Dict, Iterable, List, Literal, Optional, Tuple, Union
+from typing import Dict, List, Literal, Tuple
 
 import torch
-from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm
 
-from .gpt import GPTLanguageModel
+import pytorch_lightning as pl
+from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+
+from .data import NGramDataModule
+from .model import Transformer
 
 
 class Config:
@@ -42,7 +45,7 @@ class Config:
         max_iters: int,
         eval_interval: int,
         eval_iters: int,
-        amp: bool,
+        precision: int,
         n_embd: int,
         n_head: int,
         n_layer: int,
@@ -51,16 +54,17 @@ class Config:
         weight_decay: float,
         momentum: float,
         lr: float,
+        betas: Tuple[float, float],
         lr_patience: int,
         lr_factor: float,
-        betas: Tuple[float, float],
         gen: bool,
     ):
+        self.datapath = Path(datapath)
         self.batch_size = batch_size
         self.max_iters = max_iters
         self.eval_interval = eval_interval
         self.eval_iters = eval_iters
-        self.amp = amp
+        self.precision = precision
         self.n_embd = n_embd
         self.n_head = n_head
         self.n_layer = n_layer
@@ -69,123 +73,14 @@ class Config:
         self.weight_decay = weight_decay
         self.momentum = momentum
         self.lr = lr
+        self.betas = betas
         self.lr_patience = lr_patience
         self.lr_factor = lr_factor
-        self.betas = betas
         self.gen = gen
-
-        datapath = Path(datapath)
-        if not datapath.exists():
-            # fetch file
-            import requests
-
-            url = "https://raw.githubusercontent.com/datasets-br/prenomes/master/data/nomes-censos-ibge.csv"
-            response = requests.get(url, allow_redirects=True)
-            if response.status_code == 200:
-                with open(datapath, "w", encoding="utf-8") as f:
-                    f.write(response.text)
-
-        # read the csv, get only names
-        with open(datapath, "r", encoding="utf-8") as f:
-            words = [line.split(",")[0].lower() for line in f.readlines()]
-        # remove file header
-        words = words[1:]
-        print(f"Words before sanitizing: {len(words)}")
-
-        # sanitize data
-        expected_vocab = "abcdefghijklmnopqrstuvwxyz"
-        for name in tqdm(words, desc="Sanitizing"):
-            if any(c not in expected_vocab for c in name):
-                words.remove(name)
-        print(f"Words after sanitizing: {len(words)}")
-
-        words = list(set(words))
-        print(f"Words after removing duplicates: {len(words)}")
-
-        shortest = min(len(word) for word in words)
-        longest = max(len(word) for word in words)
-        print(f"Shortest word: {shortest}, longest word: {longest}")
-
-        # how many letters we'll see to predict the next one
-        self.block_size = longest
-
-        text = "".join(words)
-
-        # here are all the unique characters that occur in this text
-        chars = sorted(list(set("." + text)))
-        self.vocab_size = len(chars)
-
-        # create a mapping from characters to integers
-        self.__stoi = {ch: i for i, ch in enumerate(chars)}
-        self.__itos = {i: ch for i, ch in enumerate(chars)}
-
-        X, Y = [], []
-        for word in tqdm(words, desc="n-gramizing"):
-            context = [self.__stoi["."]] * self.block_size
-            for ch in word + ".":
-                ix = self.__stoi[ch]
-                X.append(context)
-                Y.append(ix)
-                context = context[1:] + [ix]
-
-        X = torch.tensor(X)
-        Y = torch.tensor(Y)
-
-        print(f"Dataset size: {X.shape[0]}, block size: {X.shape[1]}")
-
-        # Train and test splits
-        n = int(0.9 * X.shape[0])  # first 90% will be train, rest val
-        self.train_X, self.train_Y = X[:n], Y[:n]
-        self.val_X, self.val_Y = X[n:], Y[n:]
-
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.session_name = f"{self.vocab_size}_{self.block_size}_{n_embd}_{n_head}_{n_layer}"
-        self.session_dir = Path("runs") / self.session_name
-        self.writer = SummaryWriter(self.session_dir)
 
     def encode(self, s: str):
         """Take a string, output a list of integers."""
         return [self.__stoi[c] for c in s]
-
-    def decode(self, l: List[int]):
-        """Take a list of integers, output a string"""
-        return "".join([self.__itos[i] for i in l])
-
-    def build_optimizer(
-        self,
-        model_params: Union[Iterable[torch.Tensor], Dict[str, torch.Tensor]],
-    ):
-        if self.optimizer == "sgd":
-            optimizer = torch.optim.SGD(
-                params=model_params,
-                lr=self.lr,
-                momentum=self.momentum,
-                weight_decay=self.weight_decay,
-            )
-        elif self.optimizer == "adam":
-            optimizer = torch.optim.Adam(params=model_params,
-                                         lr=self.lr,
-                                         betas=self.betas,
-                                         weight_decay=self.weight_decay)
-        elif self.optimizer == "adamw":
-            optimizer = torch.optim.AdamW(params=model_params,
-                                          lr=self.lr,
-                                          betas=self.betas,
-                                          weight_decay=self.weight_decay)
-        else:
-            raise ValueError(f"Unrecognized optimizer '{self.optimizer}'")
-        return optimizer
-
-    # data loading
-    def get_batch(self, split: Literal["train", "val"]):
-        # generate a small batch of data of inputs x and targets y
-        data_X = self.train_X if split == "train" else self.val_X
-        data_Y = self.train_Y if split == "train" else self.val_Y
-        idx = torch.randint(len(data_X), size=(self.batch_size, ))
-        x = data_X[idx]
-        y = data_Y[idx]
-        x, y = x.to(self.device), y.to(self.device)
-        return x, y
 
     @torch.no_grad()
     def estimate_loss(self, model: torch.nn.Module) -> Dict[Literal["train", "val"], torch.Tensor]:
@@ -200,13 +95,6 @@ class Config:
             out[split] = losses.mean()
         model.train()
         return out
-
-    def posprocess_generated_words(self, output: torch.Tensor) -> List[str]:
-        samples = [self.decode(out).strip(".") for out in output.tolist()]
-        samples = [
-            sample[:sample.find(".")] if sample.find(".") != -1 else sample for sample in samples]
-
-        return samples
 
     def hparams_dict(self):
         return {
@@ -260,10 +148,10 @@ def get_config() -> Config:
         help="",
     )
     group.add_argument(
-        "--amp",
-        dest="amp",
-        action="store_true",
-        help="Enable PyTorch Automatic Mixed Precision (with GradScaler and autocast) during training",
+        "--precision",
+        type=int,
+        default=16,
+        help="Floating point precision to use.",
     )
     group.add_argument(
         "--gen",
@@ -347,140 +235,31 @@ def get_config() -> Config:
     return Config(**vars(args))
 
 
-def reload_state_dicts(ckpt_path: Path,
-                       model: Optional[torch.nn.Module]=None,
-                       optimizer: Optional[torch.optim.Optimizer]=None,
-                       lr_scheduler: Optional[torch.optim.lr_scheduler._LRScheduler]=None):
-    state_dicts = torch.load(ckpt_path)
-    if model is not None:
-        model.load_state_dict(state_dicts["model"])
-    if optimizer is not None:
-        optimizer.load_state_dict(state_dicts["optimizer"])
-    if lr_scheduler is not None:
-        lr_scheduler.load_state_dict(state_dicts["lr_scheduler"])
-    return state_dicts["iter"], state_dicts["val_loss"]
-
-
 if __name__ == "__main__":
     torch.manual_seed(1337)
     config = get_config()
-    best_val_loss, best_train_loss = None, None
-    try:
-        model = GPTLanguageModel(
-            config.vocab_size,
-            config.block_size,
-            config.n_embd,
-            config.n_head,
-            config.dropout,
-            config.n_layer,
-        )
-        model = model.to(config.device)
-
-        # create a PyTorch optimizer
-        optimizer = config.build_optimizer(model.parameters())
-
-        # and a learning rate scheduler
-        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
-                                                                mode="min",
-                                                                patience=config.lr_patience,
-                                                                verbose=True,
-                                                                factor=config.lr_factor)
-
-        config.session_dir.mkdir(exist_ok=True)
-        ckpt_path = config.session_dir / "weights.pt"
-
-        best_val_loss = float("inf")
-        start_iter = 0
-        if ckpt_path.is_file():
-            try:
-                start_iter, best_val_loss = reload_state_dicts(ckpt_path, model, optimizer, lr_scheduler)
-                print("Loaded checkpoint file")
-                if config.gen is not None:
-                    sample = config.posprocess_generated_words(
-                        model.generate_many(device=config.device, n=config.gen))
-                    with open("sample.txt", "w", encoding="utf-8") as f:
-                        f.write("\n".join(sample))
-                    exit()
-
-            except RuntimeError:
-                print("Unable to load checkpoint file")
-
-        # print the number of parameters in the model
-        print(sum(p.numel() for p in model.parameters()) / 1e6, "M parameters")
-
-        scaler = torch.cuda.amp.GradScaler(enabled=config.amp)
-
-        last_best_iter = 0
-        current_lr = optimizer.param_groups[0]['lr']
-        config.writer.add_scalar("Train/Learning rate", current_lr, start_iter)
-        for iter in tqdm(range(config.max_iters)):
-            # every once in a while evaluate the loss on train and val sets
-            if iter % config.eval_interval == 0 or iter == config.max_iters - 1:
-                losses = config.estimate_loss(model)
-                val_loss_diff = losses["val"] - best_val_loss
-                print(
-                    f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f} ({val_loss_diff:+.4f} {iter-last_best_iter} iters ago)"
-                )
-                config.writer.add_scalar("Losses/Train", losses["train"], start_iter + iter)
-                config.writer.add_scalar("Losses/Val", losses["val"], start_iter + iter)
-                lr_scheduler.step(losses["val"])
-                if current_lr != optimizer.param_groups[0]['lr']:
-                    current_lr = optimizer.param_groups[0]['lr']
-                    config.writer.add_scalar("Train/Learning rate", current_lr, start_iter + iter)
-                    best_iter, _ = reload_state_dicts(ckpt_path, model, optimizer)
-                    print(f"Loaded best model from iter {best_iter}")
-                # generate from the model, remove leading and trailing . and
-                # keep only stuff before the first remaining ., if it exists
-                samples = config.posprocess_generated_words(model.generate_many(config.device, n=12))
-                samples = " ".join(samples)
-                print(f"Samples: {samples}")
-                for sample in samples:
-                    config.writer.add_text("Samples", samples, start_iter + iter)
-
-                if start_iter + iter > 0 and val_loss_diff < 0:
-                    best_train_loss = losses["train"].item()
-                    best_val_loss = losses["val"].item()
-                    last_best_iter = iter
-                    config.writer.add_scalar("Losses/Decay", -val_loss_diff, start_iter + iter)
-                    print("\nA BETTER MODEL WAS FOUND! SAVING CHECKPOINT")
-                    torch.save(
-                        {"val_loss" : best_val_loss,
-                            "model_params": (config.vocab_size,
-                                            config.block_size,
-                                            config.n_embd,
-                                            config.n_head,
-                                            config.n_layer),
-                            "iter":
-                            start_iter + iter,
-                            "model":
-                            model.state_dict(),
-                            "optimizer":
-                            optimizer.state_dict(),
-                            "lr_scheduler":
-                            lr_scheduler.state_dict(), },
-                        ckpt_path,
-                    )
-
-            # sample a batch of data
-            xb, yb = config.get_batch("train")
-
-            # evaluate the loss
-            with torch.cuda.amp.autocast(enabled=config.amp):
-                logits, loss = model(xb, yb)
-            # Scales loss. Calls backward() on scaled loss to create scaled gradients.
-            scaler.scale(loss).backward()
-            # scaler.step() first unscales the gradients of the optimizer's assigned params.
-            # If these gradients do not contain infs or NaNs, optimizer.step() is then called,
-            # otherwise, optimizer.step() is skipped.
-            scaler.step(optimizer)
-            # Updates the scale for next iteration.
-            scaler.update()
-            # Clear gradient parameters
-            optimizer.zero_grad(set_to_none=True)
-    except KeyboardInterrupt:
-        if best_train_loss is not None:
-            print("Saving HParams and best results to TensorBoard...")
-            config.writer.add_hparams(config.hparams_dict(), {
-                "hparams/train_loss": best_train_loss, "hparams/val_loss": best_val_loss})
-        print("Exiting training due to user request.")
-        exit()
+    datamodule = NGramDataModule(config.datapath, config.batch_size, 8)
+    model = Transformer(
+        27,
+        15,
+        config.n_embd,
+        config.n_head,
+        config.dropout,
+        config.n_layer,
+        config.optimizer,
+        config.weight_decay,
+        config.momentum,
+        config.betas,
+        config.lr,
+        config.lr_patience,
+        config.lr_factor,
+    )
+    trainer = pl.Trainer(
+        accelerator='gpu',
+        max_epochs=config.max_iters,
+        val_check_interval=250,
+        precision=config.precision,
+        limit_val_batches=200,
+        callbacks=[EarlyStopping(monitor="Loss/Val", mode="min", patience=config.lr_patience * 2)],
+    )
+    trainer.fit(model, datamodule=datamodule)

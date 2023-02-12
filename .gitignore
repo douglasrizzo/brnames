@@ -136,5 +136,7 @@ dmypy.json
 *.csv
 # Net weights
 weights/
-# TensorBoard runs
-runs/
+# Lightning logs
+lightning_logs/
+# Checkpoints
+*.ckpt
