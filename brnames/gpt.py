@@ -126,8 +126,7 @@ class GPTLanguageModel(nn.Module):
         x = self.blocks(x)  # (B,T,C)
         x = self.ln_f(x)  # (B,T,C)
         logits = self.lm_head(x)  # (B,T,vocab_size)
-        logits = logits[:, -1, :].squeeze()  # (B, C)
-        loss = None if targets is None else F.cross_entropy(logits, targets)
+        loss = None if targets is None else F.cross_entropy(logits[:, -1, :], targets)
         return logits, loss
 
     @torch.no_grad()
@@ -149,7 +148,9 @@ class GPTLanguageModel(nn.Module):
         inpute = torch.tensor([[0] * self.__block_size] * n, device=device)
         # generate until first character is not a . anymore
         while inpute[0, 0] == 0:
-            logits, _ = self(inpute)
+            logits, _ = self(inpute)  # (B, C)
+            # to generate the next character of ther word, we only care about the last the step in the logits
+            logits = logits[:, -1, :]  # (B, C)
             probs = F.softmax(logits, dim=-1)  # (B, C)
             # sample from the distribution
             idx_next = torch.multinomial(probs, num_samples=1)  # (B, 1)
