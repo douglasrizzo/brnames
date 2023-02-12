@@ -1,7 +1,7 @@
 import argparse
 from argparse import ArgumentParser
 from pathlib import Path
-from typing import Dict, Iterable, List, Literal, Tuple, Union
+from typing import Dict, Iterable, List, Literal, Optional, Tuple, Union
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -30,6 +30,8 @@ class Config:
             5e-3,
             0.9,
             3e-4,
+            10,
+            2,
             (0.9, 0.999),
         )
 
@@ -49,6 +51,8 @@ class Config:
         weight_decay: float,
         momentum: float,
         lr: float,
+        lr_patience: int,
+        lr_factor: float,
         betas: Tuple[float, float],
         gen: bool,
     ):
@@ -65,6 +69,8 @@ class Config:
         self.weight_decay = weight_decay
         self.momentum = momentum
         self.lr = lr
+        self.lr_patience = lr_patience
+        self.lr_factor = lr_factor
         self.betas = betas
         self.gen = gen
 
@@ -305,6 +311,18 @@ def get_config() -> Config:
         help="Learning rate",
     )
     group.add_argument(
+        "--lr_patience",
+        type=int,
+        default=10,
+        help="Learning rate scheduler plateau patience",
+    )
+    group.add_argument(
+        "--lr_factor",
+        type=float,
+        default=.2,
+        help="Learning rate scheduler plateau factor",
+    )
+    group.add_argument(
         "--betas",
         nargs=2,
         type=float,
@@ -334,9 +352,9 @@ if __name__ == "__main__":
     # and a learning rate scheduler
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
                                                               mode="min",
-                                                              patience=10,
+                                                                patience=config.lr_patience,
                                                               verbose=True,
-                                                              factor=0.2)
+                                                                factor=config.lr_factor)
 
     ckpt_path = Path("weights")
     ckpt_path.mkdir(exist_ok=True)
