@@ -208,6 +208,19 @@ class Config:
 
         return samples
 
+    def hparams_dict(self):
+        return {
+            'batch_size': self.batch_size,
+            'optimizer': self.optimizer,
+            'n_embd': self.n_embd,
+            'n_head': self.n_head,
+            'n_layer': self.n_layer,
+            'amp': self.amp,
+            'dropout': self.dropout,
+            'weight_decay': self.weight_decay,
+            'lr_patience': self.lr_patience,
+            'lr_factor': self.lr_factor, }
+
 
 def get_config() -> Config:
     parser = ArgumentParser(
@@ -334,98 +347,140 @@ def get_config() -> Config:
     return Config(**vars(args))
 
 
+def reload_state_dicts(ckpt_path: Path,
+                       model: Optional[torch.nn.Module]=None,
+                       optimizer: Optional[torch.optim.Optimizer]=None,
+                       lr_scheduler: Optional[torch.optim.lr_scheduler._LRScheduler]=None):
+    state_dicts = torch.load(ckpt_path)
+    if model is not None:
+        model.load_state_dict(state_dicts["model"])
+    if optimizer is not None:
+        optimizer.load_state_dict(state_dicts["optimizer"])
+    if lr_scheduler is not None:
+        lr_scheduler.load_state_dict(state_dicts["lr_scheduler"])
+    return state_dicts["iter"], state_dicts["val_loss"]
+
+
 if __name__ == "__main__":
     torch.manual_seed(1337)
     config = get_config()
-    model = GPTLanguageModel(
-        config.vocab_size,
-        config.block_size,
-        config.n_embd,
-        config.n_head,
-        config.dropout,
-        config.n_layer,
-    )
-    model = model.to(config.device)
+    best_val_loss, best_train_loss = None, None
+    try:
+        model = GPTLanguageModel(
+            config.vocab_size,
+            config.block_size,
+            config.n_embd,
+            config.n_head,
+            config.dropout,
+            config.n_layer,
+        )
+        model = model.to(config.device)
 
-    # create a PyTorch optimizer
-    optimizer = config.build_optimizer(model.parameters())
+        # create a PyTorch optimizer
+        optimizer = config.build_optimizer(model.parameters())
 
-    # and a learning rate scheduler
-    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
-                                                              mode="min",
+        # and a learning rate scheduler
+        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
+                                                                mode="min",
                                                                 patience=config.lr_patience,
-                                                              verbose=True,
+                                                                verbose=True,
                                                                 factor=config.lr_factor)
 
         config.session_dir.mkdir(exist_ok=True)
         ckpt_path = config.session_dir / "weights.pt"
 
-    last_iter = 0
-    if ckpt_path.is_file():
-        try:
-            state_dicts = torch.load(ckpt_path)
-            model.load_state_dict(state_dicts["model"])
-            optimizer.load_state_dict(state_dicts["optimizer"])
-            lr_scheduler.load_state_dict(state_dicts["lr_scheduler"])
-            last_iter = state_dicts["iter"]
-            print("Loaded checkpoint file")
+        best_val_loss = float("inf")
+        start_iter = 0
+        if ckpt_path.is_file():
+            try:
+                start_iter, best_val_loss = reload_state_dicts(ckpt_path, model, optimizer, lr_scheduler)
+                print("Loaded checkpoint file")
                 if config.gen is not None:
-                sample = config.posprocess_generated_words(
+                    sample = config.posprocess_generated_words(
                         model.generate_many(device=config.device, n=config.gen))
-                with open("sample.txt", "w", encoding="utf-8") as f:
-                    f.write("\n".join(sample))
-                exit()
+                    with open("sample.txt", "w", encoding="utf-8") as f:
+                        f.write("\n".join(sample))
+                    exit()
 
-        except RuntimeError:
-            print("Unable to load checkpoint file")
+            except RuntimeError:
+                print("Unable to load checkpoint file")
 
-    # print the number of parameters in the model
-    print(sum(p.numel() for p in model.parameters()) / 1e6, "M parameters")
+        # print the number of parameters in the model
+        print(sum(p.numel() for p in model.parameters()) / 1e6, "M parameters")
 
-    scaler = torch.cuda.amp.GradScaler(enabled=config.amp)
+        scaler = torch.cuda.amp.GradScaler(enabled=config.amp)
 
-    best_val_loss = float("inf")
-    for iter in tqdm(range(config.max_iters)):
-        # every once in a while evaluate the loss on train and val sets
-        if iter % config.eval_interval == 0 or iter == config.max_iters - 1:
-            losses = config.estimate_loss(model)
-            print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
-            config.writer.add_scalar("Training/Loss", losses["train"], last_iter + iter)
-            config.writer.add_scalar("Val/Loss", losses["val"], last_iter + iter)
-            lr_scheduler.step(losses["val"])
-            # generate from the model, remove leading and trailing . and
-            # keep only stuff before the first remaining ., if it exists
-            samples = config.posprocess_generated_words(model.generate_many(config.device, n=12))
-            samples = " ".join(samples)
-            print(f"Samples: {samples}")
-            for sample in samples:
-                config.writer.add_text("Samples", samples, last_iter + iter)
-
-            if losses["val"] < best_val_loss:
-                best_val_loss = losses["val"].item()
-                print("Saving best model checkpoint")
-                torch.save(
-                    {
-                        "iter": last_iter + iter,
-                        "model": model.state_dict(),
-                        "optimizer": optimizer.state_dict(),
-                        "lr_scheduler": lr_scheduler.state_dict(), },
-                    ckpt_path,
+        last_best_iter = 0
+        current_lr = optimizer.param_groups[0]['lr']
+        config.writer.add_scalar("Train/Learning rate", current_lr, start_iter)
+        for iter in tqdm(range(config.max_iters)):
+            # every once in a while evaluate the loss on train and val sets
+            if iter % config.eval_interval == 0 or iter == config.max_iters - 1:
+                losses = config.estimate_loss(model)
+                val_loss_diff = losses["val"] - best_val_loss
+                print(
+                    f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f} ({val_loss_diff:+.4f} {iter-last_best_iter} iters ago)"
                 )
+                config.writer.add_scalar("Losses/Train", losses["train"], start_iter + iter)
+                config.writer.add_scalar("Losses/Val", losses["val"], start_iter + iter)
+                lr_scheduler.step(losses["val"])
+                if current_lr != optimizer.param_groups[0]['lr']:
+                    current_lr = optimizer.param_groups[0]['lr']
+                    config.writer.add_scalar("Train/Learning rate", current_lr, start_iter + iter)
+                    best_iter, _ = reload_state_dicts(ckpt_path, model, optimizer)
+                    print(f"Loaded best model from iter {best_iter}")
+                # generate from the model, remove leading and trailing . and
+                # keep only stuff before the first remaining ., if it exists
+                samples = config.posprocess_generated_words(model.generate_many(config.device, n=12))
+                samples = " ".join(samples)
+                print(f"Samples: {samples}")
+                for sample in samples:
+                    config.writer.add_text("Samples", samples, start_iter + iter)
 
-        # sample a batch of data
-        xb, yb = config.get_batch("train")
+                if start_iter + iter > 0 and val_loss_diff < 0:
+                    best_train_loss = losses["train"].item()
+                    best_val_loss = losses["val"].item()
+                    last_best_iter = iter
+                    config.writer.add_scalar("Losses/Decay", -val_loss_diff, start_iter + iter)
+                    print("\nA BETTER MODEL WAS FOUND! SAVING CHECKPOINT")
+                    torch.save(
+                        {"val_loss" : best_val_loss,
+                            "model_params": (config.vocab_size,
+                                            config.block_size,
+                                            config.n_embd,
+                                            config.n_head,
+                                            config.n_layer),
+                            "iter":
+                            start_iter + iter,
+                            "model":
+                            model.state_dict(),
+                            "optimizer":
+                            optimizer.state_dict(),
+                            "lr_scheduler":
+                            lr_scheduler.state_dict(), },
+                        ckpt_path,
+                    )
 
-        # evaluate the loss
-        with torch.cuda.amp.autocast(enabled=config.amp):
-            logits, loss = model(xb, yb)
-        # Scales loss. Calls backward() on scaled loss to create scaled gradients.
-        scaler.scale(loss).backward()
-        # scaler.step() first unscales the gradients of the optimizer's assigned params.
-        # If these gradients do not contain infs or NaNs, optimizer.step() is then called,
-        # otherwise, optimizer.step() is skipped.
-        scaler.step(optimizer)
-        # Updates the scale for next iteration.
-        scaler.update()
-        # Clear gradient parameters
-        optimizer.zero_grad(set_to_none=True)
+            # sample a batch of data
+            xb, yb = config.get_batch("train")
+
+            # evaluate the loss
+            with torch.cuda.amp.autocast(enabled=config.amp):
+                logits, loss = model(xb, yb)
+            # Scales loss. Calls backward() on scaled loss to create scaled gradients.
+            scaler.scale(loss).backward()
+            # scaler.step() first unscales the gradients of the optimizer's assigned params.
+            # If these gradients do not contain infs or NaNs, optimizer.step() is then called,
+            # otherwise, optimizer.step() is skipped.
+            scaler.step(optimizer)
+            # Updates the scale for next iteration.
+            scaler.update()
+            # Clear gradient parameters
+            optimizer.zero_grad(set_to_none=True)
+    except KeyboardInterrupt:
+        if best_train_loss is not None:
+            print("Saving HParams and best results to TensorBoard...")
+            config.writer.add_hparams(config.hparams_dict(), {
+                "hparams/train_loss": best_train_loss, "hparams/val_loss": best_val_loss})
+        print("Exiting training due to user request.")
+        exit()
