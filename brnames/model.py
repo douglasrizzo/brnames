@@ -110,6 +110,7 @@ class Transformer(pl.LightningModule):
         lr_factor: float,
     ):
         super().__init__()
+        self.save_hyperparameters()
         self.optimizer = optimizer
         self.weight_decay = weight_decay
         self.momentum = momentum
