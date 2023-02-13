@@ -238,6 +238,33 @@ def get_config() -> Config:
 if __name__ == "__main__":
     torch.manual_seed(1337)
     config = get_config()
+
+    if config.gen is not None:
+        # load checkpoint
+        checkpoint = "./lightning_logs/version_4/checkpoints/epoch=28-step=51874.ckpt"
+        model = Transformer.load_from_checkpoint(
+            checkpoint,
+            vocab_size=27,
+            block_size = 15,
+            n_embd=config.n_embd,
+            n_head=config.n_head,
+            dropout=config.dropout,
+            n_layer=config.n_layer,
+            optimizer=config.optimizer,
+            weight_decay=config.weight_decay,
+            momentum=config.momentum,
+            betas=config.betas,
+            lr=config.lr,
+            lr_patience=config.lr_patience,
+            lr_factor=config.lr_factor,
+        ).to('cuda')
+        model = model.eval()
+        samples = model.posprocess_generated_words(model.generate(config.gen))
+        with open('sample.txt', 'w', encoding='utf-8') as f:
+            f.write('\n'.join(samples))
+        exit()
+
+
     datamodule = NGramDataModule(config.datapath, config.batch_size, 8)
     model = Transformer(
         27,
