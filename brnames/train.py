@@ -57,7 +57,7 @@ class Config:
         betas: Tuple[float, float],
         lr_patience: int,
         lr_factor: float,
-        gen: bool,
+        gen: int,
     ):
         self.datapath = Path(datapath)
         self.batch_size = batch_size
