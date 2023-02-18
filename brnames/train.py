@@ -241,7 +241,6 @@ def get_config() -> Config:
 
 
 if __name__ == "__main__":
-    torch.manual_seed(1337)
     config = get_config()
 
     if config.gen is not None:
@@ -252,7 +251,7 @@ if __name__ == "__main__":
             f.write("\n".join(samples))
         exit()
 
-
+    torch.manual_seed(1337)
     datamodule = NGramDataModule(config.datapath, config.batch_size, 8)
     model = Transformer(
         27,
