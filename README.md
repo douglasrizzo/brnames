@@ -39,35 +39,36 @@ O *logging* é executado no terminal e no TensorBoard, no diretório `runs/`. Na
 
 Para gerar uma lista de nomes, primeiro treine um modelo e depois execute o script de treino novamente com a flag `--gen`. Os pesos do modelo serão recuperados do diretório `weights/` e um arquivo chamado `sample.txt` será gerado com 1000 nomes.
 
+## Desempenho
+
+| Modelo | Ativações  | Embedding | Cabeças de auto-atenção | Blocos de auto-atenção | Dropout | Inicialização  | Erro |
+|--------|------------|-----------|-------------------------|------------------------|---------| ---------------|------|
+| 1      | ReLU       | 128       | 4                       |                        | 0.2     | N(0; 0,02)     | 1.69 |
+| 2      | ReLU       | 64        | 3                       | 2                      | 0.2     | N(0; 0,02)     | 1.74 |
+| 3      | ReLU       | 128       | 4                       | 3                      | 0.2     | N(0; 0,02)     | 1.68 |
+| 4      | ReLU       | 128       | 4                       | 3                      | 0.2     | N(0; 0,02)     | 1.67 |
+| 5      | ReLU       | 384       | 3                       | 3                      | 0.2     | N(0; 0,02)     | 1.66 |
+| 6      | TanH       | 384       | 3                       | 3                      | 0.2     | N(0; 0,02)     | 1.7  |
+| 7      | ReLU       | 384       | 3                       | 3                      | 0.2     | Kaiming-normal | 1.69 |
+| 8      | Leaky-ReLU | 384       | 3                       | 3                      | 0.2     | N(0; 0,02)     | 1.67 |
+
 ## Amostras
 
 ```
-jossenira
-handreja
-eklem
-farociana
-maeusinar
-talhani
-neurio
-valtesio
-gualiene
-ledja
-helberte
-gilsineidi
-djosy
-zoira
-paulenice
-niziane
-gersinilda
-abert
-erito
-linaira
-queta
-malne
-ederlanda
-evertro
-kayne
-cleilson
-lucivania
+petralino
+ivalmir
+maerio
+bosca
+edjames
+ellyda
+vaelica
+jessicleia
+sylverio
+zaqueu
+heinrick
+kaycke
+carlena
+valdeice
+aguinailton
+marailson
 ```
-</details>
