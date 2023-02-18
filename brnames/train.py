@@ -10,7 +10,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 
 from .data import NGramDataModule
-from .model import Transformer
+from .model import ACTIVATIONS, Transformer
 
 
 class Config:
@@ -50,6 +50,7 @@ class Config:
         n_head: int,
         n_layer: int,
         dropout: float,
+        activation: str,
         optimizer: str,
         weight_decay: float,
         momentum: float,
@@ -69,6 +70,7 @@ class Config:
         self.n_head = n_head
         self.n_layer = n_layer
         self.dropout = dropout
+        self.activation = activation
         self.optimizer = optimizer
         self.weight_decay = weight_decay
         self.momentum = momentum
@@ -185,6 +187,13 @@ def get_config() -> Config:
         default=0.2,
         help="Dropout probability (for all layers in the model)",
     )
+    group.add_argument(
+        "--activation",
+        type=str,
+        choices=ACTIVATIONS.keys(),
+        default="relu",
+        help="Activation function to used by the feed-forward modules inside each block.",
+    )
 
     group = parser.add_argument_group("Optimizer parameters")
     group.add_argument(
@@ -280,6 +289,7 @@ if __name__ == "__main__":
         config.lr,
         config.lr_patience,
         config.lr_factor,
+        config.activation,
     )
     trainer = pl.Trainer(
         accelerator='gpu',

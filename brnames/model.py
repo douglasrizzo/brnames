@@ -1,12 +1,16 @@
-from typing import List, Tuple, Union
+from typing import List, Literal, Tuple
 
+import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
-import pytorch_lightning as pl
-from pytorch_lightning.callbacks import LearningRateMonitor
+ACTIVATIONS = {
+    "relu": nn.ReLU,
+    "sigmoid": nn.Sigmoid,
+    "tanh": nn.Tanh,
+    "leaky_relu": nn.LeakyReLU, }
 
 
 class SelfAttentionHead(nn.Module):
@@ -58,11 +62,16 @@ class MultiHeadAttention(nn.Module):
 class FeedForward(nn.Module):
     """A simple linear layer followed by a non-linearity"""
 
-    def __init__(self, n_embd: int, dropout: float):
+    def __init__(
+        self,
+        n_embd: int,
+        dropout: float,
+        activation: Literal["relu", "leaky_relu", "sigmoid", "tanh"],
+    ):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(n_embd, 4 * n_embd),
-            nn.ReLU(),
+            ACTIVATIONS[activation](),
             nn.Linear(4 * n_embd, n_embd),
             nn.Dropout(dropout),
         )
@@ -74,12 +83,12 @@ class FeedForward(nn.Module):
 class Block(nn.Module):
     """Transformer block: communication followed by computation"""
 
-    def __init__(self, n_embd: int, block_size: int, n_head: int, dropout: float):
+    def __init__(self, n_embd: int, block_size: int, n_head: int, dropout: float, activation: str):
         # n_embd: embedding dimension, n_head: the number of heads we'd like
         super().__init__()
         head_size = n_embd // n_head
         self.sa = MultiHeadAttention(n_embd, head_size, block_size, n_head, dropout)
-        self.ffwd = FeedForward(n_embd, dropout)
+        self.ffwd = FeedForward(n_embd, dropout, activation)
         self.ln1 = nn.LayerNorm(n_embd)
         self.ln2 = nn.LayerNorm(n_embd)
 
@@ -108,6 +117,7 @@ class Transformer(pl.LightningModule):
         lr: float,
         lr_patience: int,
         lr_factor: float,
+        activation: str = "relu",
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -119,11 +129,14 @@ class Transformer(pl.LightningModule):
         self.lr_patience = lr_patience
         self.lr_factor = lr_factor
         self.block_size = block_size
+        self.activation = activation
+        # used by Lightning to log graph
+        self.example_input_array = torch.zeros((1, block_size), dtype=torch.long)
         # each token directly reads off the logits for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
         self.blocks = nn.Sequential(
-            *[Block(n_embd, block_size, n_head, dropout) for _ in range(n_layer)])
+            *[Block(n_embd, block_size, n_head, dropout, activation) for _ in range(n_layer)])
         self.ln_f = nn.LayerNorm(n_embd)  # final layer norm
         self.lm_head = nn.Linear(n_embd, vocab_size)
 
