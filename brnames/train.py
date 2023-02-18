@@ -58,7 +58,7 @@ class Config:
         betas: Tuple[float, float],
         lr_patience: int,
         lr_factor: float,
-        gen: int,
+        gen: Optional[Tuple[str, str]],
     ):
         self.datapath = Path(datapath)
         self.batch_size = batch_size
@@ -78,7 +78,14 @@ class Config:
         self.betas = betas
         self.lr_patience = lr_patience
         self.lr_factor = lr_factor
-        self.gen = gen
+        try:
+            if gen is None:
+                self.gen = gen
+            else:
+                self.gen = Path(gen[0]), int(gen[1])
+        except:
+            print(gen, gen is None)
+            raise
 
     def encode(self, s: str):
         """Take a string, output a list of integers."""
@@ -157,9 +164,11 @@ def get_config() -> Config:
     )
     group.add_argument(
         "--gen",
-        type=int,
+        nargs=2,
+        type=str,
         default=None,
-        help="Generate names into a text file and exit.",
+        help=
+        "Generate names into a text file and exit. Arg 1 is the path to the checkpoint file, arg 2 is the n of samples ot generate.",
     )
 
     group = parser.add_argument_group("Model parameters")
@@ -250,27 +259,10 @@ if __name__ == "__main__":
 
     if config.gen is not None:
         # load checkpoint
-        checkpoint = "./lightning_logs/version_4/checkpoints/epoch=28-step=51874.ckpt"
-        model = Transformer.load_from_checkpoint(
-            checkpoint,
-            vocab_size=27,
-            block_size = 15,
-            n_embd=config.n_embd,
-            n_head=config.n_head,
-            dropout=config.dropout,
-            n_layer=config.n_layer,
-            optimizer=config.optimizer,
-            weight_decay=config.weight_decay,
-            momentum=config.momentum,
-            betas=config.betas,
-            lr=config.lr,
-            lr_patience=config.lr_patience,
-            lr_factor=config.lr_factor,
-        ).to('cuda')
-        model = model.eval()
-        samples = model.posprocess_generated_words(model.generate(config.gen))
-        with open('sample.txt', 'w', encoding='utf-8') as f:
-            f.write('\n'.join(samples))
+        model = Transformer.load_from_checkpoint(config.gen[0]).to("cuda").eval()
+        samples = model.posprocess_generated_words(model.generate(config.gen[1]))
+        with open("sample.txt", "w", encoding="utf-8") as f:
+            f.write("\n".join(samples))
         exit()
 
 
