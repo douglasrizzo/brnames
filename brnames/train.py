@@ -1,13 +1,13 @@
 import argparse
 from argparse import ArgumentParser
 from pathlib import Path
-from typing import Dict, List, Literal, Tuple
-
-import torch
+from typing import Dict, Literal, Optional, Tuple
 
 import pytorch_lightning as pl
-from pytorch_lightning.loggers import TensorBoardLogger
+import torch
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+from pytorch_lightning.loggers import TensorBoardLogger
 
 from .data import NGramDataModule
 from .model import ACTIVATIONS, Transformer
@@ -270,11 +270,28 @@ if __name__ == "__main__":
         config.activation,
     )
     trainer = pl.Trainer(
-        accelerator='gpu',
+        logger=TensorBoardLogger(save_dir=".", log_graph=True),
+        accelerator="gpu",
         max_epochs=config.max_iters,
-        val_check_interval=250,
+        val_check_interval=1.0,
         precision=config.precision,
         limit_val_batches=200,
-        callbacks=[EarlyStopping(monitor="Loss/Val", mode="min", patience=config.lr_patience * 2)],
+        auto_scale_batch_size=True,
+        auto_lr_find=True,
+        callbacks=[
+            EarlyStopping(
+                monitor="Loss/Val",
+                mode="min",
+                patience=config.lr_patience * 2,
+            ),
+            ModelCheckpoint(
+                filename="epoch={epoch}-val_loss={Loss/Val:.2f}",
+                auto_insert_metric_name=False,
+                monitor="Loss/Val",
+                save_top_k=3,
+                mode="min",
+            ),
+            LearningRateMonitor(), ],
     )
+    trainer.tune(model, datamodule=datamodule)
     trainer.fit(model, datamodule=datamodule)
