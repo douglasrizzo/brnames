@@ -1,8 +1,9 @@
-from pathlib import Path
 import random
+from pathlib import Path
+
 import torch
-from torch.utils.data import Dataset, DataLoader
 from pytorch_lightning import LightningDataModule
+from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
 
@@ -73,7 +74,7 @@ class NGramDataModule(LightningDataModule):
         # create a mapping from characters to integers
         stoi = {ch: i for i, ch in enumerate(chars)}
 
-        random.shuffle(words) # shuffle to prevent a bad train/val split
+        random.shuffle(words)  # shuffle to prevent a bad train/val split
         n = int(0.9 * len(words))  # first 90% of words will be train, rest val
         train_set, val_set = [], []
         n_examples = 0

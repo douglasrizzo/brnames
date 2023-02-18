@@ -91,7 +91,7 @@ class Block(nn.Module):
 
 class Transformer(pl.LightningModule):
 
-    itos = {i: ch for i, ch in enumerate(sorted(list(set('.abcdefghijklmnopqrstuvwxyz'))))}
+    itos = {i: ch for i, ch in enumerate(sorted(list(set(".abcdefghijklmnopqrstuvwxyz"))))}
 
     def __init__(
         self,
@@ -177,15 +177,19 @@ class Transformer(pl.LightningModule):
                 weight_decay=self.weight_decay,
             )
         elif self.optimizer == "adam":
-            optimizer = torch.optim.Adam(params=self.parameters(),
-                                         lr=self.lr,
-                                         betas=self.betas,
-                                         weight_decay=self.weight_decay)
+            optimizer = torch.optim.Adam(
+                params=self.parameters(),
+                lr=self.lr,
+                betas=self.betas,
+                weight_decay=self.weight_decay,
+            )
         elif self.optimizer == "adamw":
-            optimizer = torch.optim.AdamW(params=self.parameters(),
-                                          lr=self.lr,
-                                          betas=self.betas,
-                                          weight_decay=self.weight_decay)
+            optimizer = torch.optim.AdamW(
+                params=self.parameters(),
+                lr=self.lr,
+                betas=self.betas,
+                weight_decay=self.weight_decay,
+            )
         else:
             raise ValueError(f"Unrecognized optimizer '{self.optimizer}'")
 

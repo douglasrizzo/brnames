@@ -221,7 +221,7 @@ def get_config() -> Config:
     group.add_argument(
         "--lr_factor",
         type=float,
-        default=.2,
+        default=0.2,
         help="Learning rate scheduler plateau factor",
     )
     group.add_argument(
