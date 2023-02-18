@@ -146,6 +146,8 @@ class Transformer(pl.LightningModule):
     def _init_weights(self, module: nn.Module):
         if isinstance(module, nn.Linear):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            # NOTE not as good as N(0,0.02) init
+            # torch.nn.init.kaiming_normal_(module.weight, nonlinearity=self.activation, a=0.1)
             if module.bias is not None:
                 torch.nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
