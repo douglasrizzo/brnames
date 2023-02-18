@@ -105,19 +105,6 @@ class Config:
         model.train()
         return out
 
-    def hparams_dict(self):
-        return {
-            'batch_size': self.batch_size,
-            'optimizer': self.optimizer,
-            'n_embd': self.n_embd,
-            'n_head': self.n_head,
-            'n_layer': self.n_layer,
-            'amp': self.amp,
-            'dropout': self.dropout,
-            'weight_decay': self.weight_decay,
-            'lr_patience': self.lr_patience,
-            'lr_factor': self.lr_factor, }
-
 
 def get_config() -> Config:
     parser = ArgumentParser(
