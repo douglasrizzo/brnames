@@ -40,7 +40,7 @@ O *logging* é executado no terminal e no TensorBoard, no diretório `runs/`. Na
 Para gerar uma lista de nomes, primeiro treine um modelo e depois execute o script de treino novamente com a flag `--gen`, passando o caminho do arquivo de pesos e a quantidade de nomes a serem gerados, os quais serão impressos em um arquivo chamado `sample.txt`.
 
 ```sh
-python -m brnames.train --gen path/to/checkpoint.ckpt  500
+python -m brnames.train --gen path/to/checkpoint.ckpt 500
 ```
 
 ## Desempenho
