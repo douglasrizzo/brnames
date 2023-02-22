@@ -121,6 +121,7 @@ class Transformer(pl.LightningModule):
         activation: str = "relu",
         amsgrad: bool = False,
         ce_weights: Optional[torch.Tensor] = None,
+        lr_scheduler:str="reduce_on_plateau"
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -144,6 +145,7 @@ class Transformer(pl.LightningModule):
         self.ln_f = nn.LayerNorm(n_embd)  # final layer norm
         self.lm_head = nn.Linear(n_embd, vocab_size)
         self.ce_weights = ce_weights
+        self.lr_scheduler = lr_scheduler
 
         # better init, not covered in the original GPT video, but important, will cover in followup video
         self.apply(self._init_weights)
@@ -216,12 +218,42 @@ class Transformer(pl.LightningModule):
             )
         else:
             raise ValueError(f"Unrecognized optimizer '{self.optimizer}'")
-
+        
+        if self.lr_scheduler == "cosine":
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer,
+                T_max=self.max_epochs/10,
+                eta_min=1e-7,
+            )
+        elif self.lr_scheduler =="reduce_on_plateau":
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer,
+                "min",
+                self.lr_factor,
+                self.lr_patience,
+                threshold=1e-3,
+                threshold_mode="abs",
+                min_lr=1e-6,)
+        elif self.lr_scheduler == "exponential":
+            scheduler = torch.optim.lr_scheduler.ExponentialLR(
+                optimizer,
+                gamma=self.lr_factor,
+            )
+        elif self.lr_scheduler == "cosine_restarts":
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+                optimizer,
+                T_0=30,
+                eta_min=1e-7,
+            )
+        else:
+            raise ValueError(f"Unrecognized lr_scheduler '{self.lr_scheduler}'")
+        
         return {
-            "optimizer": optimizer,
-            "lr_scheduler": ReduceLROnPlateau(optimizer, "min", self.lr_factor, self.lr_patience),
-            "monitor": "Loss/Val", }
-        # "lr_monitor": LearningRateMonitor(logging_interval='step'), }
+            "optimizer":
+            optimizer,
+            "lr_scheduler": scheduler,
+            "monitor":
+            "Loss/Val", }
 
     @torch.no_grad()
     def generate(self, n: int = 2):

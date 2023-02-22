@@ -55,6 +55,7 @@ class Config:
         weight_decay: float,
         momentum: float,
         lr: float,
+        lr_scheduler: str,
         betas: Tuple[float, float],
         amsgrad: bool,
         lr_patience: int,
@@ -76,6 +77,7 @@ class Config:
         self.weight_decay = weight_decay
         self.momentum = momentum
         self.lr = lr
+        self.lr_scheduler = lr_scheduler
         self.betas = betas
         self.amsgrad = amsgrad
         self.lr_patience = lr_patience
@@ -223,19 +225,25 @@ def get_config() -> Config:
         "--lr",
         type=float,
         default=3e-4,
-        help="Learning rate",
+        help="Initial learning rate",
+    )
+    group.add_argument(
+        "--lr_scheduler",
+        type=str,
+        default="reduce_on_plateau",
+        help="Learning rate scheduler",
     )
     group.add_argument(
         "--lr_patience",
         type=int,
         default=10,
-        help="Learning rate scheduler plateau patience",
+        help="ReduceLROnPlateau patience (evaluation steps)",
     )
     group.add_argument(
         "--lr_factor",
         type=float,
         default=0.2,
-        help="Learning rate scheduler plateau factor",
+        help="Learning rate scheduler multiplicative factor",
     )
     group.add_argument(
         "--betas",
@@ -284,6 +292,7 @@ if __name__ == "__main__":
         config.activation,
         config.amsgrad,
         datamodule.compute_class_weights() if config.ce_weights else None,
+        config.lr_scheduler,
     )
     trainer = pl.Trainer(
         logger=TensorBoardLogger(save_dir=".", log_graph=True),
