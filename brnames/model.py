@@ -118,6 +118,7 @@ class Transformer(pl.LightningModule):
         lr_patience: int,
         lr_factor: float,
         activation: str = "relu",
+        ce_weights: Optional[torch.Tensor] = None,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -139,6 +140,7 @@ class Transformer(pl.LightningModule):
             *[Block(n_embd, block_size, n_head, dropout, activation) for _ in range(n_layer)])
         self.ln_f = nn.LayerNorm(n_embd)  # final layer norm
         self.lm_head = nn.Linear(n_embd, vocab_size)
+        self.ce_weights = ce_weights
 
         # better init, not covered in the original GPT video, but important, will cover in followup video
         self.apply(self._init_weights)
@@ -169,14 +171,16 @@ class Transformer(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         X, Y = batch
         logits = self(X)
-        loss = F.cross_entropy(logits[:, -1, :], Y)
+        # train/val steps run on different devices, so we need to move the class weights to the same device
+        loss = F.cross_entropy(logits[:, -1, :], Y, weight=self.ce_weights.to(self.device)if self.ce_weights is not None else None)
         self.log("Loss/Train", loss.item())
         return loss
 
     def validation_step(self, batch, batch_idx):
         X, Y = batch
         logits = self(X)
-        loss = F.cross_entropy(logits[:, -1, :], Y)
+        # train/val steps run on different devices, so we need to move the class weights to the same device
+        loss = F.cross_entropy(logits[:, -1, :], Y, weight=self.ce_weights.to(self.device)if self.ce_weights is not None else None)
         self.log("Loss/Val", loss.item())
         return loss
 

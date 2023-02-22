@@ -1,5 +1,6 @@
 import random
 from pathlib import Path
+from sklearn.utils import compute_class_weight
 
 import torch
 from pytorch_lightning import LightningDataModule
@@ -112,6 +113,16 @@ class NGramDataModule(LightningDataModule):
             shuffle=False,
             num_workers=self.num_workers,
             worker_init_fn=_init_loader_seed,
+        )
+
+    def compute_class_weights(self) -> torch.Tensor:
+        self.prepare_data()
+        self.setup(stage="fit")
+        return torch.tensor(
+            compute_class_weight(class_weight="balanced",
+                                 classes=self.train_Y.unique().numpy(),
+                                 y=self.train_Y.numpy()),
+            dtype=torch.float32,
         )
 
 

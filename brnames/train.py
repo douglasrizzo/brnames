@@ -157,6 +157,12 @@ def get_config() -> Config:
         help=
         "Generate names into a text file and exit. Arg 1 is the path to the checkpoint file, arg 2 is the n of samples ot generate.",
     )
+    group.add_argument(
+        '--ce_weights',
+        dest='ce_weights',
+        action='store_true',
+        help="Compute class weights for cross-entropy function using the training data.",
+    )
 
     group = parser.add_argument_group("Model parameters")
     group.add_argument(
@@ -268,6 +274,7 @@ if __name__ == "__main__":
         config.lr_patience,
         config.lr_factor,
         config.activation,
+        datamodule.compute_class_weights() if config.ce_weights else None,
     )
     trainer = pl.Trainer(
         logger=TensorBoardLogger(save_dir=".", log_graph=True),
