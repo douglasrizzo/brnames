@@ -119,6 +119,7 @@ class Transformer(pl.LightningModule):
         lr_patience: int,
         lr_factor: float,
         activation: str = "relu",
+        amsgrad: bool = False,
         ce_weights: Optional[torch.Tensor] = None,
     ):
         super().__init__()
@@ -128,6 +129,7 @@ class Transformer(pl.LightningModule):
         self.momentum = momentum
         self.lr = lr
         self.betas = betas
+        self.amsgrad = amsgrad
         self.lr_patience = lr_patience
         self.lr_factor = lr_factor
         self.block_size = block_size
@@ -202,6 +204,7 @@ class Transformer(pl.LightningModule):
                 lr=self.lr,
                 betas=self.betas,
                 weight_decay=self.weight_decay,
+                amsgrad=self.amsgrad,
             )
         elif self.optimizer == "adamw":
             optimizer = torch.optim.AdamW(
@@ -209,6 +212,7 @@ class Transformer(pl.LightningModule):
                 lr=self.lr,
                 betas=self.betas,
                 weight_decay=self.weight_decay,
+                amsgrad=self.amsgrad,
             )
         else:
             raise ValueError(f"Unrecognized optimizer '{self.optimizer}'")

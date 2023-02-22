@@ -56,6 +56,7 @@ class Config:
         momentum: float,
         lr: float,
         betas: Tuple[float, float],
+        amsgrad: bool,
         lr_patience: int,
         lr_factor: float,
         gen: Optional[Tuple[str, str]],
@@ -76,6 +77,7 @@ class Config:
         self.momentum = momentum
         self.lr = lr
         self.betas = betas
+        self.amsgrad = amsgrad
         self.lr_patience = lr_patience
         self.lr_factor = lr_factor
         try:
@@ -242,6 +244,12 @@ def get_config() -> Config:
         default=[0.9, 0.999],
         help="Beta values for the Adam family of algorithms",
     )
+    group.add_argument(
+        '--amsgrad',
+        dest='amsgrad',
+        action='store_true',
+        help="Use AMSGrad variant of optimizer, if available.",
+    )
     args = parser.parse_args()
     return Config(**vars(args))
 
@@ -274,6 +282,7 @@ if __name__ == "__main__":
         config.lr_patience,
         config.lr_factor,
         config.activation,
+        config.amsgrad,
         datamodule.compute_class_weights() if config.ce_weights else None,
     )
     trainer = pl.Trainer(
