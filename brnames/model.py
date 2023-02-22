@@ -8,9 +8,10 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 ACTIVATIONS = {
     "relu": nn.ReLU,
+    "gelu": nn.GELU,
+    "leaky_relu": nn.LeakyReLU,
     "sigmoid": nn.Sigmoid,
-    "tanh": nn.Tanh,
-    "leaky_relu": nn.LeakyReLU, }
+    "tanh": nn.Tanh, }
 
 
 class SelfAttentionHead(nn.Module):
@@ -66,7 +67,7 @@ class FeedForward(nn.Module):
         self,
         n_embd: int,
         dropout: float,
-        activation: Literal["relu", "leaky_relu", "sigmoid", "tanh"],
+        activation: str,
     ):
         super().__init__()
         self.net = nn.Sequential(
