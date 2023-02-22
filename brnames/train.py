@@ -5,7 +5,7 @@ from typing import Dict, Literal, Optional, Tuple
 
 import pytorch_lightning as pl
 import torch
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, RichProgressBar
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
 
@@ -279,6 +279,7 @@ if __name__ == "__main__":
         auto_scale_batch_size=True,
         auto_lr_find=True,
         callbacks=[
+            RichProgressBar(),
             EarlyStopping(
                 monitor="Loss/Val",
                 mode="min",

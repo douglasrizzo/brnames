@@ -4,7 +4,7 @@ from pathlib import Path
 import torch
 from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader, Dataset
-from tqdm import tqdm
+from rich.progress import track
 
 
 class NGramDataset(Dataset):
@@ -51,7 +51,7 @@ class NGramDataModule(LightningDataModule):
 
         # sanitize data
         expected_vocab = "abcdefghijklmnopqrstuvwxyz"
-        for name in tqdm(words, desc="Sanitizing"):
+        for name in track(words, description="Sanitizing"):
             if any(c not in expected_vocab for c in name):
                 words.remove(name)
         print(f"Words after sanitizing: {len(words)}")
@@ -79,7 +79,7 @@ class NGramDataModule(LightningDataModule):
         train_set, val_set = [], []
         n_examples = 0
         # generate tokenized n-grams and put them in the train or val list
-        for idx, word in tqdm(enumerate(words), desc="n-gramizing"):
+        for idx, word in track(enumerate(words), description="n-gramizing"):
             context = [stoi["."]] * self.block_size
             data = train_set if idx <= n else val_set
             for ch in word + ".":
