@@ -60,6 +60,7 @@ class Config:
         amsgrad: bool,
         lr_patience: int,
         lr_factor: float,
+        es_patience:int,
         gen: Optional[Tuple[str, str]],
     ):
         self.datapath = Path(datapath)
@@ -82,6 +83,7 @@ class Config:
         self.amsgrad = amsgrad
         self.lr_patience = lr_patience
         self.lr_factor = lr_factor
+        self.es_patience=es_patience
         try:
             if gen is None:
                 self.gen = gen
@@ -246,6 +248,12 @@ def get_config() -> Config:
         help="Learning rate scheduler multiplicative factor",
     )
     group.add_argument(
+        "--es_patience",
+        type=int,
+        default=20,
+        help="Early stopping patience (evaluation steps)",
+    )
+    group.add_argument(
         "--betas",
         nargs=2,
         type=float,
@@ -308,7 +316,7 @@ if __name__ == "__main__":
             EarlyStopping(
                 monitor="Loss/Val",
                 mode="min",
-                patience=config.lr_patience * 2,
+                patience=config.es_patience,
             ),
             ModelCheckpoint(
                 filename="epoch={epoch}-val_loss={Loss/Val:.2f}",
