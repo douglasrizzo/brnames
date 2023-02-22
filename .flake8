@@ -1,0 +1,7 @@
+[flake8]
+; Error codes available at:
+; https://flake8.pycqa.org/en/latest/user/error-codes.html
+; https://pycodestyle.pycqa.org/en/latest/intro.html#error-codes
+select=W1,W2,W3,W6,E101,E502,E71,E703,E721,E74,E9,F401,F5,F60,F63,F7,F82,F83
+; ignore imported but unused in __init__.py files
+per-file-ignores = __init__.py:F401
