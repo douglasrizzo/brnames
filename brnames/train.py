@@ -290,8 +290,8 @@ if __name__ == "__main__":
         config.lr_scheduler,
     )
     trainer = pl.Trainer(
-        logger=WandbLogger(project="brnames", log_model="all")
-        if config.logger == "wandb" else TensorBoardLogger(save_dir=".", log_graph=True),
+        logger=WandbLogger(project="brnames", path="./logs/wandb", log_model="all")
+        if config.logger == "wandb" else TensorBoardLogger(save_dir="./logs/tensorboard", log_graph=True),
         accelerator="gpu",
         max_epochs=config.max_epochs,
         val_check_interval=0.5,

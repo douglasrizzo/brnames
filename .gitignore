@@ -137,6 +137,6 @@ dmypy.json
 # Net weights
 weights/
 # Lightning logs
-lightning_logs/
+logs/
 # Checkpoints
 *.ckpt
