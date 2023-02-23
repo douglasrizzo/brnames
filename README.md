@@ -51,6 +51,8 @@ Para gerar uma lista de nomes, primeiro treine um modelo e depois execute o scri
 | 6      | TanH       | 384       | 3                       | 3                      | 0.2     | N(0; 0,02)     | 1.7  |
 | 7      | ReLU       | 384       | 3                       | 3                      | 0.2     | Kaiming-normal | 1.69 |
 | 8      | Leaky-ReLU | 384       | 3                       | 3                      | 0.2     | N(0; 0,02)     | 1.67 |
+| 9      | ReLU       | 384       | 3                       | 3                      | 0.5     | N(0; 0,02)     | 1.69 |
+| 10     | ReLU       | 384       | 3                       | 3                      | 0.1     | N(0; 0,02)     | 1.68 |
 
 ## Amostras
 
