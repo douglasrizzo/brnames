@@ -5,7 +5,6 @@ import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
 from torch import nn
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 ACTIVATIONS = {
     "relu": nn.ReLU,
@@ -240,8 +239,6 @@ class Transformer(pl.LightningModule):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, idx: torch.Tensor):
-        # if idx.ndim == 1:
-        #     idx.unsqueeze_(0)
         B, T = idx.shape
         # idx and targets are both (B,T) tensor of integers
         tok_emb = self.token_embedding_table(idx)  # (B,T,C)

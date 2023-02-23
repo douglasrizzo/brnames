@@ -1,7 +1,7 @@
 import argparse
 from argparse import ArgumentParser
 from pathlib import Path
-from typing import Dict, Literal, Optional, Tuple
+from typing import Optional, Tuple
 
 import pytorch_lightning as pl
 import torch
@@ -24,11 +24,13 @@ class Config:
             5000,
             500,
             200,
-            False,
+            16,
             384,
             6,
             6,
             0.2,
+            "relu",
+            "layer",
             "adamw",
             5e-3,
             0.9,
@@ -42,9 +44,7 @@ class Config:
         self,
         datapath: str,
         batch_size: int,
-        max_iters: int,
-        eval_interval: int,
-        eval_iters: int,
+        max_epochs: int,
         precision: int,
         ce_weights: bool,
         n_embd: int,
@@ -67,9 +67,7 @@ class Config:
     ):
         self.datapath = Path(datapath)
         self.batch_size = batch_size
-        self.max_iters = max_iters
-        self.eval_interval = eval_interval
-        self.eval_iters = eval_iters
+        self.max_epochs = max_epochs
         self.precision = precision
         self.ce_weights = ce_weights
         self.n_embd = n_embd
@@ -97,29 +95,11 @@ class Config:
             print(gen, gen is None)
             raise
 
-    def encode(self, s: str):
-        """Take a string, output a list of integers."""
-        return [self.__stoi[c] for c in s]
-
-    @torch.no_grad()
-    def estimate_loss(self, model: torch.nn.Module) -> Dict[Literal["train", "val"], torch.Tensor]:
-        out = {}
-        model.eval()
-        for split in ["train", "val"]:
-            losses = torch.zeros(self.eval_iters)
-            for k in range(self.eval_iters):
-                X, Y = self.get_batch(split)
-                _, loss = model(X, Y)
-                losses[k] = loss.item()
-            out[split] = losses.mean()
-        model.train()
-        return out
-
 
 def get_config() -> Config:
     parser = ArgumentParser(
         "Language model trainer",
-        description="Train a language model on a list of names to predict more names",
+        description="Train a language model on a list of names to predict more names.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     group = parser.add_argument_group("Training parameters")
@@ -143,22 +123,10 @@ def get_config() -> Config:
         help="Number of training examples utilized in one iteration.",
     )
     group.add_argument(
-        "--max_iters",
+        "--max_epochs",
         type=int,
-        default=5000,
-        help="",
-    )
-    group.add_argument(
-        "--eval_interval",
-        type=int,
-        default=500,
-        help="",
-    )
-    group.add_argument(
-        "--eval_iters",
-        type=int,
-        default=200,
-        help="",
+        default=50000,
+        help="Maximum number of training epochs.",
     )
     group.add_argument(
         "--precision",
@@ -324,12 +292,10 @@ if __name__ == "__main__":
     trainer = pl.Trainer(
         logger=WandbLogger(project="brnames",log_model="all") if config.logger == "wandb" else TensorBoardLogger(save_dir='.', log_graph=True),
         accelerator="gpu",
-        max_epochs=config.max_iters,
-        val_check_interval=1.0,
+        max_epochs=config.max_epochs,
+        val_check_interval=0.5,
         precision=config.precision,
-        limit_val_batches=200,
         auto_scale_batch_size=True,
-        auto_lr_find=True,
         callbacks=[
             RichProgressBar(),
             EarlyStopping(
@@ -338,7 +304,7 @@ if __name__ == "__main__":
                 patience=config.es_patience,
             ),
             ModelCheckpoint(
-                filename="epoch={epoch}-val_loss={Loss/Val:.2f}",
+                filename="epoch={epoch}-val_loss={Loss/Val:.4f}",
                 auto_insert_metric_name=False,
                 monitor="Loss/Val",
                 save_top_k=3,
