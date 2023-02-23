@@ -51,6 +51,7 @@ class Config:
         n_layer: int,
         dropout: float,
         activation: str,
+        parallel_sa: bool,
         optimizer: str,
         weight_decay: float,
         momentum: float,
@@ -74,6 +75,7 @@ class Config:
         self.n_layer = n_layer
         self.dropout = dropout
         self.activation = activation
+        self.parallel_sa = parallel_sa
         self.optimizer = optimizer
         self.weight_decay = weight_decay
         self.momentum = momentum
@@ -209,6 +211,13 @@ def get_config() -> Config:
         default="relu",
         help="Activation function to used by the feed-forward modules inside each block.",
     )
+    group.add_argument(
+        '--sequential-sa',
+        dest='parallel_sa',
+        action='store_false',
+        help="Use sequential implementation of multi-head self-attention.",
+        default=True,
+    )
 
     group = parser.add_argument_group("Optimizer parameters")
     group.add_argument(
@@ -305,6 +314,7 @@ if __name__ == "__main__":
         config.lr_patience,
         config.lr_factor,
         config.activation,
+        config.parallel_sa,
         config.amsgrad,
         datamodule.compute_class_weights() if config.ce_weights else None,
         config.lr_scheduler,

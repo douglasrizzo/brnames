@@ -1,4 +1,5 @@
-from typing import List, Literal, Tuple
+from abc import ABC
+from typing import List, Tuple, Optional
 
 import pytorch_lightning as pl
 import torch
@@ -43,20 +44,87 @@ class SelfAttentionHead(nn.Module):
         return out
 
 
-class MultiHeadAttention(nn.Module):
-    """Multiple heads of self-attention in parallel"""
+class MultiHeadAttention(ABC, nn.Module):
+    """Multiple heads of self-attention in parallel."""
 
-    def __init__(self, n_embd: int, head_size: int, block_size: int, num_heads: int,
-                 dropout: float):
+    @staticmethod
+    def __closest_numerator(n: int, m: int) -> int:
+        q = n // m
+        # 1st possible closest number
+        n1 = m * q
+        # 2nd possible closest number
+        n2 = m * (q + 1) if (n * m) > 0 else m * (q - 1)
+        return n1 if abs(n - n1) < abs(n - n2) else n2
+
+    def __init__(self, n_embd: int, n_head: int):
         super().__init__()
+        if n_embd % n_head != 0:
+            best_n_embd = MultiHeadAttention.__closest_numerator(n_embd, n_head)
+            raise ValueError(
+                f"n_embd ({n_embd}) is not perfectly divisible by n_head ({n_head}). Closest n_embed is {best_n_embd}."
+            )
+
+        self.n_embd = n_embd
+        self.n_head = n_head
+        self.head_size = n_embd // n_head
+        print(f"For n_embd ({n_embd}) and n_head ({n_head}), head_size will be {self.head_size}.")
+
+
+class SequentialMultiHeadAttention(MultiHeadAttention):
+    """Multiple heads of self-attention in parallel (in the model architecture), computed sequentially."""
+
+    def __init__(self, n_embd: int, block_size: int, n_head: int, dropout: float):
+        super().__init__(n_embd, n_head)
         self.heads = nn.ModuleList([
-            SelfAttentionHead(n_embd, head_size, block_size, dropout) for _ in range(num_heads)])
-        self.proj = nn.Linear(head_size * num_heads, n_embd)
+            SelfAttentionHead(n_embd, self.head_size, block_size, dropout) for _ in range(n_head)])
+        self.proj = nn.Linear(self.head_size * n_head, n_embd)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
         out = torch.cat([h(x) for h in self.heads], dim=-1)
         out = self.dropout(self.proj(out))
+        return out
+
+
+class ParallelMultiHeadAttention(MultiHeadAttention):
+    """
+    Parallelized version of the of the multi-head self-attention from https://github.com/karpathy/nanoGPT,
+    in which Q,K,V for all heads are computed at the same time.
+    """
+
+    def __init__(self, n_embd: int, block_size: int, n_head: int, dropout: float):
+        super().__init__(n_embd, n_head)
+        # key, query, value projections for all heads, but in a batch
+        self.c_attn = nn.Linear(n_embd, 3 * n_embd, bias=False)
+        self.register_buffer(
+            "tril",
+            torch.tril(torch.ones(block_size, block_size)).view(1, 1, block_size, block_size))
+
+        self.attn_dropout = nn.Dropout(dropout)
+        self.proj = nn.Linear(n_embd, n_embd)
+        self.res_dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor):
+        # input of size (batch, time-step, channels)
+        # output of size (batch, time-step, head size)
+        B, T, C = x.shape
+
+        # calculate query, key, values for all heads in batch and move head forward to be the batch dim
+        q, k, v = self.c_attn(x).split(self.n_embd, dim=2)
+        k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
+        q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
+        v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
+
+        # compute attention scores ("affinities")
+        wei = q @ k.transpose(-2, -1) * k.shape[-1]**-0.5  # (B, T, hs) @ (B, hs, T) -> (B, T, T)
+        wei = wei.masked_fill(self.tril[:T, :T] == 0, float("-inf"))  # (B, T, T)
+        wei = F.softmax(wei, dim=-1)  # (B, T, T)
+        wei = self.attn_dropout(wei)
+        # perform the weighted aggregation of the values
+        out = wei @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+        out = out.transpose(1, 2).contiguous().view(B, T,
+                                                    C)  # re-assemble all head outputs side by side
+        out = self.res_dropout(self.proj(out))
         return out
 
 
@@ -84,14 +152,22 @@ class FeedForward(nn.Module):
 class Block(nn.Module):
     """Transformer block: communication followed by computation"""
 
-    def __init__(self, n_embd: int, block_size: int, n_head: int, dropout: float, activation: str):
+    def __init__(self,
+                 n_embd: int,
+                 block_size: int,
+                 n_head: int,
+                 dropout: float,
+                 activation: str,
+                 parallel: bool = False):
         # n_embd: embedding dimension, n_head: the number of heads we'd like
         super().__init__()
-        head_size = n_embd // n_head
-        self.sa = MultiHeadAttention(n_embd, head_size, block_size, n_head, dropout)
-        self.ffwd = FeedForward(n_embd, dropout, activation)
         self.ln1 = nn.LayerNorm(n_embd)
+        if parallel:
+            self.sa = ParallelMultiHeadAttention(n_embd, block_size, n_head, dropout)
+        else:
+            self.sa = SequentialMultiHeadAttention(n_embd, block_size, n_head, dropout)
         self.ln2 = nn.LayerNorm(n_embd)
+        self.ffwd = FeedForward(n_embd, dropout, activation)
 
     def forward(self, x: torch.Tensor):
         x = x + self.sa(self.ln1(x))
@@ -119,6 +195,7 @@ class Transformer(pl.LightningModule):
         lr_patience: int,
         lr_factor: float,
         activation: str = "relu",
+        parallel_sa: bool = True,
         amsgrad: bool = False,
         ce_weights: Optional[torch.Tensor] = None,
         lr_scheduler:str="reduce_on_plateau"
@@ -135,13 +212,15 @@ class Transformer(pl.LightningModule):
         self.lr_factor = lr_factor
         self.block_size = block_size
         self.activation = activation
+        self.parallel_sa = parallel_sa
         # used by Lightning to log graph
         self.example_input_array = torch.zeros((1, block_size), dtype=torch.long)
         # each token directly reads off the logits for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
-        self.blocks = nn.Sequential(
-            *[Block(n_embd, block_size, n_head, dropout, activation) for _ in range(n_layer)])
+        self.blocks = nn.Sequential(*[
+            Block(n_embd, block_size, n_head, dropout, activation, parallel_sa)
+            for _ in range(n_layer)])
         self.ln_f = nn.LayerNorm(n_embd)  # final layer norm
         self.lm_head = nn.Linear(n_embd, vocab_size)
         self.ce_weights = ce_weights
