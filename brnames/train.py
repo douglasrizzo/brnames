@@ -62,7 +62,7 @@ class Config:
         amsgrad: bool,
         lr_patience: int,
         lr_factor: float,
-        es_patience:int,
+        es_patience: int,
         gen: Optional[Tuple[str, str]],
     ):
         self.datapath = Path(datapath)
@@ -85,7 +85,7 @@ class Config:
         self.amsgrad = amsgrad
         self.lr_patience = lr_patience
         self.lr_factor = lr_factor
-        self.es_patience=es_patience
+        self.es_patience = es_patience
         try:
             if gen is None:
                 self.gen = gen
@@ -143,9 +143,9 @@ def get_config() -> Config:
         "Generate names into a text file and exit. Arg 1 is the path to the checkpoint file, arg 2 is the n of samples ot generate.",
     )
     group.add_argument(
-        '--ce_weights',
-        dest='ce_weights',
-        action='store_true',
+        "--ce_weights",
+        dest="ce_weights",
+        action="store_true",
         help="Compute class weights for cross-entropy function using the training data.",
     )
 
@@ -182,9 +182,9 @@ def get_config() -> Config:
         help="Activation function to used by the feed-forward modules inside each block.",
     )
     group.add_argument(
-        '--sequential-sa',
-        dest='parallel_sa',
-        action='store_false',
+        "--sequential-sa",
+        dest="parallel_sa",
+        action="store_false",
         help="Use sequential implementation of multi-head self-attention.",
         default=True,
     )
@@ -247,9 +247,9 @@ def get_config() -> Config:
         help="Beta values for the Adam family of algorithms",
     )
     group.add_argument(
-        '--amsgrad',
-        dest='amsgrad',
-        action='store_true',
+        "--amsgrad",
+        dest="amsgrad",
+        action="store_true",
         help="Use AMSGrad variant of optimizer, if available.",
     )
     args = parser.parse_args()
@@ -290,7 +290,8 @@ if __name__ == "__main__":
         config.lr_scheduler,
     )
     trainer = pl.Trainer(
-        logger=WandbLogger(project="brnames",log_model="all") if config.logger == "wandb" else TensorBoardLogger(save_dir='.', log_graph=True),
+        logger=WandbLogger(project="brnames", log_model="all")
+        if config.logger == "wandb" else TensorBoardLogger(save_dir=".", log_graph=True),
         accelerator="gpu",
         max_epochs=config.max_epochs,
         val_check_interval=0.5,

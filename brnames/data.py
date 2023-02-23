@@ -1,11 +1,11 @@
 import random
 from pathlib import Path
-from sklearn.utils import compute_class_weight
 
 import torch
 from pytorch_lightning import LightningDataModule
-from torch.utils.data import DataLoader, Dataset
 from rich.progress import track
+from sklearn.utils import compute_class_weight
+from torch.utils.data import DataLoader, Dataset
 
 
 class NGramDataset(Dataset):
@@ -119,9 +119,11 @@ class NGramDataModule(LightningDataModule):
         self.prepare_data()
         self.setup(stage="fit")
         return torch.tensor(
-            compute_class_weight(class_weight="balanced",
-                                 classes=self.train_Y.unique().numpy(),
-                                 y=self.train_Y.numpy()),
+            compute_class_weight(
+                class_weight="balanced",
+                classes=self.train_Y.unique().numpy(),
+                y=self.train_Y.numpy(),
+            ),
             dtype=torch.float32,
         )
 

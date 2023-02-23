@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import List, Tuple, Optional
+from typing import List, Optional, Tuple
 
 import pytorch_lightning as pl
 import torch
@@ -97,7 +97,8 @@ class ParallelMultiHeadAttention(MultiHeadAttention):
         self.c_attn = nn.Linear(n_embd, 3 * n_embd, bias=False)
         self.register_buffer(
             "tril",
-            torch.tril(torch.ones(block_size, block_size)).view(1, 1, block_size, block_size))
+            torch.tril(torch.ones(block_size, block_size)).view(1, 1, block_size, block_size),
+        )
 
         self.attn_dropout = nn.Dropout(dropout)
         self.proj = nn.Linear(n_embd, n_embd)
@@ -121,8 +122,8 @@ class ParallelMultiHeadAttention(MultiHeadAttention):
         wei = self.attn_dropout(wei)
         # perform the weighted aggregation of the values
         out = wei @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
-        out = out.transpose(1, 2).contiguous().view(B, T,
-                                                    C)  # re-assemble all head outputs side by side
+        out = (out.transpose(1, 2).contiguous().view(
+            B, T, C))  # re-assemble all head outputs side by side
         out = self.res_dropout(self.proj(out))
         return out
 
@@ -151,13 +152,15 @@ class FeedForward(nn.Module):
 class Block(nn.Module):
     """Transformer block: communication followed by computation"""
 
-    def __init__(self,
-                 n_embd: int,
-                 block_size: int,
-                 n_head: int,
-                 dropout: float,
-                 activation: str,
-                 parallel: bool = False):
+    def __init__(
+        self,
+        n_embd: int,
+        block_size: int,
+        n_head: int,
+        dropout: float,
+        activation: str,
+        parallel: bool = False,
+    ):
         # n_embd: embedding dimension, n_head: the number of heads we'd like
         super().__init__()
         self.ln1 = nn.LayerNorm(n_embd)
@@ -197,7 +200,7 @@ class Transformer(pl.LightningModule):
         parallel_sa: bool = True,
         amsgrad: bool = False,
         ce_weights: Optional[torch.Tensor] = None,
-        lr_scheduler:str="reduce_on_plateau"
+        lr_scheduler: str = "reduce_on_plateau",
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -253,7 +256,11 @@ class Transformer(pl.LightningModule):
         X, Y = batch
         logits = self(X)
         # train/val steps run on different devices, so we need to move the class weights to the same device
-        loss = F.cross_entropy(logits[:, -1, :], Y, weight=self.ce_weights.to(self.device)if self.ce_weights is not None else None)
+        loss = F.cross_entropy(
+            logits[:, -1, :],
+            Y,
+            weight=self.ce_weights.to(self.device) if self.ce_weights is not None else None,
+        )
         self.log("Loss/Train", loss.item())
         return loss
 
@@ -261,13 +268,17 @@ class Transformer(pl.LightningModule):
         X, Y = batch
         logits = self(X)
         # train/val steps run on different devices, so we need to move the class weights to the same device
-        loss = F.cross_entropy(logits[:, -1, :], Y, weight=self.ce_weights.to(self.device)if self.ce_weights is not None else None)
+        loss = F.cross_entropy(
+            logits[:, -1, :],
+            Y,
+            weight=self.ce_weights.to(self.device) if self.ce_weights is not None else None,
+        )
         self.log("Loss/Val", loss.item())
         return loss
 
     def validation_epoch_end(self, outputs) -> None:
         words = self.posprocess_generated_words(self.generate(10))
-        if hasattr(self.logger, 'log_text'):
+        if hasattr(self.logger, "log_text"):
             self.logger.log_text(key="samples", columns=["name"], data=[[name] for name in words])
         else:
             print(f"Sample: {', '.join(words)}")
@@ -298,14 +309,14 @@ class Transformer(pl.LightningModule):
             )
         else:
             raise ValueError(f"Unrecognized optimizer '{self.optimizer}'")
-        
+
         if self.lr_scheduler == "cosine":
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 optimizer,
-                T_max=self.max_epochs/10,
+                T_max=self.max_epochs / 10,
                 eta_min=1e-7,
             )
-        elif self.lr_scheduler =="reduce_on_plateau":
+        elif self.lr_scheduler == "reduce_on_plateau":
             scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
                 optimizer,
                 "min",
@@ -313,7 +324,8 @@ class Transformer(pl.LightningModule):
                 self.lr_patience,
                 threshold=1e-3,
                 threshold_mode="abs",
-                min_lr=1e-6,)
+                min_lr=1e-6,
+            )
         elif self.lr_scheduler == "exponential":
             scheduler = torch.optim.lr_scheduler.ExponentialLR(
                 optimizer,
@@ -327,13 +339,11 @@ class Transformer(pl.LightningModule):
             )
         else:
             raise ValueError(f"Unrecognized lr_scheduler '{self.lr_scheduler}'")
-        
+
         return {
-            "optimizer":
-            optimizer,
+            "optimizer": optimizer,
             "lr_scheduler": scheduler,
-            "monitor":
-            "Loss/Val", }
+            "monitor": "Loss/Val", }
 
     @torch.no_grad()
     def generate(self, n: int = 2):
