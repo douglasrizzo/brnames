@@ -46,6 +46,7 @@ class Config:
         eval_interval: int,
         eval_iters: int,
         precision: int,
+        ce_weights: bool,
         n_embd: int,
         n_head: int,
         n_layer: int,
@@ -70,6 +71,7 @@ class Config:
         self.eval_interval = eval_interval
         self.eval_iters = eval_iters
         self.precision = precision
+        self.ce_weights = ce_weights
         self.n_embd = n_embd
         self.n_head = n_head
         self.n_layer = n_layer
