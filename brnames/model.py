@@ -190,7 +190,11 @@ class Transformer(pl.LightningModule):
         return loss
 
     def validation_epoch_end(self, outputs) -> None:
-        print(f"Sample: {self.posprocess_generated_words(self.generate(10))}")
+        words = self.posprocess_generated_words(self.generate(10))
+        if hasattr(self.logger, 'log_text'):
+            self.logger.log_text(key="samples", columns=["name"], data=[[name] for name in words])
+        else:
+            print(f"Sample: {', '.join(words)}")
 
     def configure_optimizers(self):
         if self.optimizer == "sgd":

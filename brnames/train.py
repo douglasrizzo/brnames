@@ -7,7 +7,7 @@ import pytorch_lightning as pl
 import torch
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, RichProgressBar
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 
 from .data import NGramDataModule
 from .model import ACTIVATIONS, Transformer
@@ -124,6 +124,13 @@ def get_config() -> Config:
         type=str,
         default="data.csv",
         help="Number of training examples utilized in one iteration.",
+    )
+    group.add_argument(
+        "--logger",
+        type=str,
+        default="wandb",
+        choices=["wandb", "tensorboard"],
+        help="Logger to use, either `wandb` or `tensorboard`.",
     )
     group.add_argument(
         "--batch_size",
@@ -303,7 +310,7 @@ if __name__ == "__main__":
         config.lr_scheduler,
     )
     trainer = pl.Trainer(
-        logger=TensorBoardLogger(save_dir=".", log_graph=True),
+        logger=WandbLogger(project="brnames",log_model="all") if config.logger == "wandb" else TensorBoardLogger(save_dir='.', log_graph=True),
         accelerator="gpu",
         max_epochs=config.max_iters,
         val_check_interval=1.0,
