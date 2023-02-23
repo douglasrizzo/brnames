@@ -20,13 +20,13 @@ conda activate brnames
 A documentação de uso está em:
 
 ```sh
-python -m brnames.train -h
+python -m brnames -h
 ```
 
 O comando abaixo treina um modelo padrão:
 
 ```sh
-python -m brnames.train
+python -m brnames
 ```
 
 Foram implementadas opções para selecionar diferentes otimizadores e treinar o modelo com precisão mista automática (PyTorch AMP).
