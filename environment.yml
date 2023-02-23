@@ -4,6 +4,8 @@ dependencies:
   - pip
   - pip:
     - tqdm
+    - rich
+    - wandb
     - tensorboard
     - torch
     - pytorch-lightning
