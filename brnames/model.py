@@ -337,6 +337,11 @@ class Transformer(pl.LightningModule):
                 T_0=30,
                 eta_min=1e-7,
             )
+        elif self.lr_scheduler == "constant":
+            scheduler = torch.optim.lr_scheduler.LambdaLR(
+                optimizer,
+                lambda _: 1.0,
+            )
         else:
             raise ValueError(f"Unrecognized lr_scheduler '{self.lr_scheduler}'")
 
