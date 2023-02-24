@@ -9,3 +9,4 @@ dependencies:
     - tensorboard
     - torch
     - pytorch-lightning
+    - ray[tune]

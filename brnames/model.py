@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List
 
 import pytorch_lightning as pl
 import torch
@@ -183,50 +183,38 @@ class Transformer(pl.LightningModule):
 
     def __init__(
         self,
-        vocab_size: int,
-        block_size: int,
-        n_embd: int,
-        n_head: int,
-        dropout: float,
-        n_layer: int,
-        optimizer: str,
-        weight_decay: float,
-        momentum: float,
-        betas: Tuple[float, float],
-        lr: float,
-        lr_patience: int,
-        lr_factor: float,
-        activation: str = "relu",
-        parallel_sa: bool = True,
-        amsgrad: bool = False,
-        ce_weights: Optional[torch.Tensor] = None,
-        lr_scheduler: str = "reduce_on_plateau",
+        config: Dict[str, Any],
     ):
         super().__init__()
         self.save_hyperparameters()
-        self.optimizer = optimizer
-        self.weight_decay = weight_decay
-        self.momentum = momentum
-        self.lr = lr
-        self.betas = betas
-        self.amsgrad = amsgrad
-        self.lr_patience = lr_patience
-        self.lr_factor = lr_factor
-        self.block_size = block_size
-        self.activation = activation
-        self.parallel_sa = parallel_sa
+        self.activation = config["activation"]
+        self.amsgrad = config["amsgrad"]
+        self.betas = config["betas"]
+        self.block_size = config["block_size"]
+        self.lr = config["lr"]
+        self.lr_factor = config["lr_factor"]
+        self.lr_patience = config["lr_patience"]
+        self.lr_scheduler = config["lr_scheduler"]
+        self.momentum = config["momentum"]
+        self.optimizer = config["optimizer"]
+        self.parallel_sa = config["parallel_sa"]
+        self.weight_decay = config["weight_decay"]
         # used by Lightning to log graph
-        self.example_input_array = torch.zeros((1, block_size), dtype=torch.long)
+        self.example_input_array = torch.zeros((1, config["block_size"]), dtype=torch.long)
         # each token directly reads off the logits for the next token from a lookup table
-        self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
-        self.position_embedding_table = nn.Embedding(block_size, n_embd)
+        self.token_embedding_table = nn.Embedding(config["vocab_size"], config["n_embd"])
+        self.position_embedding_table = nn.Embedding(config["block_size"], config["n_embd"])
         self.blocks = nn.Sequential(*[
-            Block(n_embd, block_size, n_head, dropout, activation, parallel_sa)
-            for _ in range(n_layer)])
-        self.ln_f = nn.LayerNorm(n_embd)  # final layer norm
-        self.lm_head = nn.Linear(n_embd, vocab_size)
-        self.ce_weights = ce_weights
-        self.lr_scheduler = lr_scheduler
+            Block(
+                config["n_embd"],
+                config["block_size"],
+                config["n_head"],
+                config["dropout"],
+                config["activation"],
+                config["parallel_sa"],
+            ) for _ in range(config["n_layer"])])
+        self.ln_f = nn.LayerNorm(config["n_embd"])  # final layer norm
+        self.lm_head = nn.Linear(config["n_embd"], config["vocab_size"])
 
         # better init, not covered in the original GPT video, but important, will cover in followup video
         self.apply(self._init_weights)
@@ -255,33 +243,23 @@ class Transformer(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         X, Y = batch
         logits = self(X)
-        # train/val steps run on different devices, so we need to move the class weights to the same device
-        loss = F.cross_entropy(
-            logits[:, -1, :],
-            Y,
-            weight=self.ce_weights.to(self.device) if self.ce_weights is not None else None,
-        )
-        self.log("Loss/Train", loss.item())
+        loss = F.cross_entropy(logits[:, -1, :], Y)
+        self.log("Loss/Train", loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
         X, Y = batch
         logits = self(X)
-        # train/val steps run on different devices, so we need to move the class weights to the same device
-        loss = F.cross_entropy(
-            logits[:, -1, :],
-            Y,
-            weight=self.ce_weights.to(self.device) if self.ce_weights is not None else None,
-        )
-        self.log("Loss/Val", loss.item())
+        loss = F.cross_entropy(logits[:, -1, :], Y)
+        self.log("Loss/Val", loss)
         return loss
 
-    def validation_epoch_end(self, outputs) -> None:
-        words = self.posprocess_generated_words(self.generate(10))
-        if hasattr(self.logger, "log_text"):
-            self.logger.log_text(key="samples", columns=["name"], data=[[name] for name in words])
-        else:
-            print(f"Sample: {', '.join(words)}")
+    # def validation_epoch_end(self, outputs) -> None:
+    #     words = self.posprocess_generated_words(self.generate(10))
+    #     if hasattr(self.logger, "log_text"):
+    #         self.logger.log_text(key="samples", columns=["name"], data=[[name] for name in words])
+    #     else:
+    #         print(f"Sample: {', '.join(words)}")
 
     def configure_optimizers(self):
         if self.optimizer == "sgd":

@@ -1,102 +1,27 @@
 import argparse
 from argparse import ArgumentParser
 from pathlib import Path
-from typing import Optional, Tuple
+from random import shuffle
+from typing import Any, Dict
 
 import pytorch_lightning as pl
+import ray
 import torch
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, RichProgressBar
+from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
+from ray import air, tune
+from ray.air.integrations.wandb import WandbLoggerCallback
+from ray.tune.integration.pytorch_lightning import TuneReportCallback
+from ray.tune.schedulers import ASHAScheduler
 
 from .data import NGramDataModule
 from .model import ACTIVATIONS, Transformer
 
-
-class Config:
-
-    @staticmethod
-    def karpathy() -> "Config":
-        return Config(
-            "data.csv",
-            64,
-            256,
-            5000,
-            500,
-            200,
-            16,
-            384,
-            6,
-            6,
-            0.2,
-            "relu",
-            "layer",
-            "adamw",
-            5e-3,
-            0.9,
-            3e-4,
-            10,
-            2,
-            (0.9, 0.999),
-        )
-
-    def __init__(
-        self,
-        datapath: str,
-        batch_size: int,
-        max_epochs: int,
-        precision: int,
-        ce_weights: bool,
-        n_embd: int,
-        n_head: int,
-        n_layer: int,
-        dropout: float,
-        activation: str,
-        parallel_sa: bool,
-        optimizer: str,
-        weight_decay: float,
-        momentum: float,
-        lr: float,
-        lr_scheduler: str,
-        betas: Tuple[float, float],
-        amsgrad: bool,
-        lr_patience: int,
-        lr_factor: float,
-        es_patience: int,
-        gen: Optional[Tuple[str, str]],
-    ):
-        self.datapath = Path(datapath)
-        self.batch_size = batch_size
-        self.max_epochs = max_epochs
-        self.precision = precision
-        self.ce_weights = ce_weights
-        self.n_embd = n_embd
-        self.n_head = n_head
-        self.n_layer = n_layer
-        self.dropout = dropout
-        self.activation = activation
-        self.parallel_sa = parallel_sa
-        self.optimizer = optimizer
-        self.weight_decay = weight_decay
-        self.momentum = momentum
-        self.lr = lr
-        self.lr_scheduler = lr_scheduler
-        self.betas = betas
-        self.amsgrad = amsgrad
-        self.lr_patience = lr_patience
-        self.lr_factor = lr_factor
-        self.es_patience = es_patience
-        try:
-            if gen is None:
-                self.gen = gen
-            else:
-                self.gen = Path(gen[0]), int(gen[1])
-        except:
-            print(gen, gen is None)
-            raise
+WANDB_PROJECT_NAME = "brnames"
+WANDB_GROUP_NAME = "tune"
 
 
-def get_config() -> Config:
+def get_config() -> Dict[str, Any]:
     parser = ArgumentParser(
         "Language model trainer",
         description="Train a language model on a list of names to predict more names.",
@@ -110,11 +35,16 @@ def get_config() -> Config:
         help="Number of training examples utilized in one iteration.",
     )
     group.add_argument(
-        "--logger",
-        type=str,
-        default="wandb",
-        choices=["wandb", "tensorboard"],
-        help="Logger to use, either `wandb` or `tensorboard`.",
+        "--tune",
+        dest="tune",
+        action="store_true",
+        help="Do a hyperparameter search using Ray Tune.",
+    )
+    group.add_argument(
+        "--wandb",
+        dest="wandb",
+        action="store_true",
+        help="Log results to wandb in addition to tensorboard.",
     )
     group.add_argument(
         "--batch_size",
@@ -141,12 +71,6 @@ def get_config() -> Config:
         default=None,
         help=
         "Generate names into a text file and exit. Arg 1 is the path to the checkpoint file, arg 2 is the n of samples ot generate.",
-    )
-    group.add_argument(
-        "--ce_weights",
-        dest="ce_weights",
-        action="store_true",
-        help="Compute class weights for cross-entropy function using the training data.",
     )
 
     group = parser.add_argument_group("Model parameters")
@@ -253,65 +177,116 @@ def get_config() -> Config:
         help="Use AMSGrad variant of optimizer, if available.",
     )
     args = parser.parse_args()
-    return Config(**vars(args))
+    args.datapath = Path(args.datapath)
+    if args.gen is not None:
+        args.gen = Path(args.gen[0]), int(args.gen[1])
+    return vars(args)
 
 
-if __name__ == "__main__":
-    config = get_config()
-
-    if config.gen is not None:
-        # load checkpoint
-        model = Transformer.load_from_checkpoint(config.gen[0]).to("cuda").eval()
-        samples = model.posprocess_generated_words(model.generate(config.gen[1]))
-        with open("sample.txt", "w", encoding="utf-8") as f:
-            f.write("\n".join(samples))
-        exit()
-
-    torch.manual_seed(1337)
-    datamodule = NGramDataModule(config.datapath, config.batch_size, 8)
-    model = Transformer(
-        27,
-        15,
-        config.n_embd,
-        config.n_head,
-        config.dropout,
-        config.n_layer,
-        config.optimizer,
-        config.weight_decay,
-        config.momentum,
-        config.betas,
-        config.lr,
-        config.lr_patience,
-        config.lr_factor,
-        config.activation,
-        config.parallel_sa,
-        config.amsgrad,
-        datamodule.compute_class_weights() if config.ce_weights else None,
-        config.lr_scheduler,
-    )
+def train_single(config: Dict[str, Any], data_path: Path, max_epochs: int) -> None:
+    datamodule = NGramDataModule(data_path, 1, 8)
+    model = Transformer(config)
+    # tune automatically logs the values listed in TuneReportCallback, so we don't configure loggers to Lightning
     trainer = pl.Trainer(
-        logger=WandbLogger(project="brnames", path="./logs/wandb", log_model="all")
-        if config.logger == "wandb" else TensorBoardLogger(save_dir="./logs/tensorboard", log_graph=True),
-        accelerator="gpu",
-        max_epochs=config.max_epochs,
+        logger=False,
+        gpus=1,
+        max_epochs=max_epochs,
         val_check_interval=0.5,
-        precision=config.precision,
+        precision=16,
         auto_scale_batch_size=True,
+        enable_progress_bar=False,
         callbacks=[
-            RichProgressBar(),
-            EarlyStopping(
-                monitor="Loss/Val",
-                mode="min",
-                patience=config.es_patience,
-            ),
+            TuneReportCallback(["Loss/Val", "Loss/Train"], on="validation_end"),
             ModelCheckpoint(
                 filename="epoch={epoch}-val_loss={Loss/Val:.4f}",
                 auto_insert_metric_name=False,
                 monitor="Loss/Val",
-                save_top_k=3,
+                save_top_k=1,
                 mode="min",
             ),
-            LearningRateMonitor(), ],
+            EarlyStopping("Loss/Val", 0.001, 30), ],
     )
     trainer.tune(model, datamodule=datamodule)
     trainer.fit(model, datamodule=datamodule)
+
+
+def gen_n_head(spec) -> int:
+    valid_n_head = [x for x in [2, 3, 4, 5, 6] if spec.config.n_embd % x == 0]
+    shuffle(valid_n_head)
+    return valid_n_head[0]
+
+
+def train_tune(config: Dict[str, Any]):
+    tune_config = {
+        "optimizer": "adamw",
+        "weight_decay": tune.choice([5e-3, 1e-3]),
+        "momentum": None,
+        "lr": tune.choice([2e-4, 3.5e-4, 5e-4, 6.5e-4, 8e-4]),
+        "lr_scheduler": "reduce_on_plateau",
+        "lr_factor": 0.2,
+        "lr_patience": 10,
+        "betas": [0.9, 0.999],
+        "vocab_size": 27,
+        "block_size": 15,
+        "amsgrad": True,
+        "parallel_sa": True,
+        "n_embd": tune.choice([128, 256, 384, 512]),
+        "n_head": tune.sample_from(gen_n_head),
+        "dropout": tune.choice([0.1, 0.2, 0.25, 0.3, 0.4, 0.5]),
+        "activation": tune.choice(["relu", "gelu"]),
+        "n_layer": tune.choice([2, 3, 4, 5, 6]), }
+
+    resources_per_trial = {"cpu": 8, "gpu": 1}
+    train_fn_with_parameters = tune.with_parameters(
+        train_single,
+        data_path=config["datapath"],
+        max_epochs=config["max_epochs"],
+    )
+
+    scheduler = ASHAScheduler(max_t=config["max_epochs"], grace_period=1, reduction_factor=2)
+
+    # configure wandb callback if chosen, logging to TensorBoard is done automatically by tune
+    ray_callbacks = ([
+        WandbLoggerCallback(project=WANDB_PROJECT_NAME, group=WANDB_GROUP_NAME), ]
+                     if config["wandb"] else [])
+    tuner = tune.Tuner(
+        tune.with_resources(
+            train_fn_with_parameters,
+            resources=resources_per_trial,
+        ),
+        tune_config=tune.TuneConfig(
+            metric="Loss/Val",
+            mode="min",
+            scheduler=scheduler,
+            num_samples=20,
+        ),
+        run_config=air.RunConfig(name="brnames_asha", callbacks=ray_callbacks),
+        param_space=tune_config,
+    )
+
+    # NOTE letting Tune start its own cluster is buggy, so its best to manually start it
+    # with ray start --head and then init it manually with ray.init(address="auto")
+    ray.init(address="auto")
+    results = tuner.fit()
+
+    print("Best hyperparameters found were: ", results.get_best_result().config)
+
+
+if __name__ == "__main__":
+    config = get_config()
+    config["vocab_size"] = 27
+    config["block_size"] = 15
+
+    if config["gen"] is not None:
+        # load checkpoint
+        model = Transformer.load_from_checkpoint(config["gen"][0]).to("cuda").eval()
+        samples = model.posprocess_generated_words(model.generate(config["gen"][1]))
+        with open("sample.txt", "w", encoding="utf-8") as f:
+            f.write("\n".join(samples))
+        exit()
+    else:
+        torch.manual_seed(1337)
+        if config["tune"]:
+            train_tune(config)
+        else:
+            train_single(config, config["datapath"], config["max_epochs"])
