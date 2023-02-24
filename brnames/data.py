@@ -4,7 +4,6 @@ from pathlib import Path
 import torch
 from pytorch_lightning import LightningDataModule
 from rich.progress import track
-from sklearn.utils import compute_class_weight
 from torch.utils.data import DataLoader, Dataset
 
 
