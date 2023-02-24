@@ -1,64 +1,94 @@
-# Gerador de nome de brasileiro
+# Brazilian name generator
 
-Esse repositório implementa um script de treinamento para treinar um modelo que gera nome de brasileiro. **Teoricamente**, ele gera sequências de caracteres, dado um conjunto de sequências de caractere para treinamento, mas eu queria ver se conseguia gerar uns nomes engraçados, então aqui estamos...
+This repository contains training scripts and models for the generation of Brazilian names. The dataset is a CSV file with over 60k names from <https://github.com/datasets-br/prenomes>, whose source is IBGE.
 
-O arquivo com os nomes veio de <https://github.com/datasets-br/prenomes>.
+Names are converted into n-grams and a Transformer is trained to predict the next character, given a partial name.
 
-O modelo veio de <https://github.com/karpathy/ng-video-lecture/> e foi adaptado para gerar nomes ao invés de poesias de Shakespeare.
+The models came from:
 
-A estratégia de treinamento usando n-gramas veio de <https://github.com/karpathy/makemore/>
+- <https://github.com/karpathy/ng-video-lecture/> (base models)
+- <https://github.com/karpathy/makemore/> (n-gram training strategy)
+- <https://github.com/karpathy/nanogpt/> (parallelized implementation of multi-head self-attention)
 
-## Uso
+Some pretty fun names are generated, check the sample at [sample.txt](sample.txt).
 
-Para criar um ambiente conda:
+## Usage
+
+A conda environment is provided, which can be generated and activated with:\
 
 ```sh
 conda env create
 conda activate brnames
 ```
 
-A documentação de uso está em:
+A single module does everything, its documentation can be accessed with:
 
 ```sh
 python -m brnames -h
 ```
 
-O comando abaixo treina um modelo padrão:
+Training uses PyTorch Lightning + Ray Tune. I experienced crashes when letting the script start its own Ray cluster, so I start it manually with:
+
+```sh
+ray start --head
+```
+
+Then, to train a default module, use:
 
 ```sh
 python -m brnames
 ```
 
-Foram implementadas opções para selecionar diferentes otimizadores e treinar o modelo com precisão mista automática (PyTorch AMP).
+Batch size is found automatically by Lightning to fill GPU memory.
 
-Pesos de modelo são salvos no diretório `weights/` e carregados antes do treino caso algum arquivo compatível exista.
+To train multiple models using a predefined hyperparameter sweep, use the `--tune` flag, which will ignore most other flags related to configuring the model and training.
 
-O *logging* é executado no terminal e no TensorBoard, no diretório `runs/`. Na etapa de avaliação do modelo, um conjunto de nomes é disponibilizado em ambos os lugares para conferência.
+If you are logged into Weights & Biases, you can log to a project called `brnames` by using the `--wandb` flag. Ray Tune also logs to TensorBoard by default in the `~/ray_results` directory.
 
-## Gerando nomes
+## Generating names
 
-Para gerar uma lista de nomes, primeiro treine um modelo e depois execute o script de treino novamente com a flag `--gen`, passando o caminho do arquivo de pesos e a quantidade de nomes a serem gerados, os quais serão impressos em um arquivo chamado `sample.txt`.
+To generate names using a trained model, use:
 
 ```sh
-python -m brnames --gen path/to/checkpoint.ckpt 500
+python -m brnames --gen <path to checkpoint file> <number of names to generate>
 ```
 
-## Desempenho
+This will generate names in a file called `sample.txt`.
 
-| Modelo | Ativações  | Embedding | Cabeças de auto-atenção | Blocos de auto-atenção | Dropout | Inicialização  | Erro |
-|--------|------------|-----------|-------------------------|------------------------|---------| ---------------|------|
-| 1      | ReLU       | 128       | 4                       |                        | 0.2     | N(0; 0,02)     | 1.69 |
-| 2      | ReLU       | 64        | 3                       | 2                      | 0.2     | N(0; 0,02)     | 1.74 |
-| 3      | ReLU       | 128       | 4                       | 3                      | 0.2     | N(0; 0,02)     | 1.68 |
-| 4      | ReLU       | 128       | 4                       | 3                      | 0.2     | N(0; 0,02)     | 1.67 |
-| 5      | ReLU       | 384       | 3                       | 3                      | 0.2     | N(0; 0,02)     | 1.66 |
-| 6      | TanH       | 384       | 3                       | 3                      | 0.2     | N(0; 0,02)     | 1.7  |
-| 7      | ReLU       | 384       | 3                       | 3                      | 0.2     | Kaiming-normal | 1.69 |
-| 8      | Leaky-ReLU | 384       | 3                       | 3                      | 0.2     | N(0; 0,02)     | 1.67 |
-| 9      | ReLU       | 384       | 3                       | 3                      | 0.5     | N(0; 0,02)     | 1.69 |
-| 10     | ReLU       | 384       | 3                       | 3                      | 0.1     | N(0; 0,02)     | 1.68 |
+Checkpoint files are saved inside `~/ray_results`. A full example of the scipt call could be:
 
-## Amostras
+```sh
+python -m brnames --gen ~/ray_results/brnames_asha/train_single_7a274_00000_0_activation=relu,dropout=0.3000,lr=0.0003,n_embd=128,n_head=2,n_layer=6,weight_decay=0.0050_2023-02-24_03-35-49/checkpoints/epoch=164-val_loss=1.6643.ckpt 25
+```
+
+## Model performance
+
+| activation | n_embd | n_head | n_layer | dropout | lr      | weight_decay | iters | Loss/Train | Loss/Val |
+|------------|--------|--------|---------|---------|---------|--------------|-------|------------|----------|
+| relu       | 128    | 2      | 6       | 0.3     | 3.5E-04 | 5E-03        | 330   | 1.596      | 1.665    |
+| gelu       | 384    | 6      | 5       | 0.4     | 3.5E-04 | 1E-03        | 96    | 1.640      | 1.669    |
+| gelu       | 128    | 4      | 5       | 0.3     | 6.5E-04 | 5E-03        | 333   | 1.616      | 1.671    |
+| relu       | 128    | 2      | 5       | 0.1     | 6.5E-04 | 5E-03        | 152   | 1.541      | 1.674    |
+| relu       | 512    | 4      | 5       | 0.3     | 2.0E-04 | 1E-03        | 130   | 1.579      | 1.674    |
+| gelu       | 384    | 2      | 5       | 0.3     | 3.5E-04 | 5E-03        | 121   | 1.529      | 1.680    |
+| relu       | 256    | 4      | 6       | 0.1     | 8.0E-04 | 5E-03        | 98    | 1.477      | 1.680    |
+| gelu       | 512    | 2      | 3       | 0.1     | 3.5E-04 | 1E-03        | 64    | 1.611      | 1.694    |
+| relu       | 384    | 3      | 2       | 0.3     | 5.0E-04 | 5E-03        | 16    | 1.893      | 1.835    |
+| relu       | 256    | 4      | 3       | 0.4     | 3.5E-04 | 1E-03        | 16    | 1.921      | 1.875    |
+| relu       | 512    | 2      | 4       | 0.25    | 5.0E-04 | 5E-03        | 4     | 2.468      | 2.103    |
+| gelu       | 256    | 2      | 2       | 0.5     | 8.0E-04 | 1E-03        | 1     | 2.557      | 2.467    |
+| relu       | 256    | 2      | 2       | 0.25    | 3.5E-04 | 5E-03        | 1     | 2.537      | 2.471    |
+| relu       | 128    | 4      | 3       | 0.25    | 5.0E-04 | 5E-03        | 1     | 2.648      | 2.607    |
+| relu       | 128    | 4      | 4       | 0.5     | 8.0E-04 | 5E-03        | 1     | 2.647      | 2.614    |
+
+All models trained with:
+
+- AdamW + AMSGrad, beta1 = 0.9 and beta2 = 0.999
+- ReduceLRonPlateau with 10 epochs of patience and scaling factor of 0.2.
+- Early stopping with 20 epochs of patience.
+- Vocabulary size = 27 (alphabet + start/end token) and block size = 15 (size of the largest names in the dataset).
+
+## Name samples
 
 ```
 petralino
