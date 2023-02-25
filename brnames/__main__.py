@@ -36,9 +36,8 @@ def get_config() -> Dict[str, Any]:
     )
     group.add_argument(
         "--tune",
-        dest="tune",
-        action="store_true",
-        help="Do a hyperparameter search using Ray Tune.",
+        type=int,
+        help="If an int is passed, do a hyperparameter search using Ray Tune with the given sample size.",
     )
     group.add_argument(
         "--wandb",
@@ -258,7 +257,7 @@ def train_tune(config: Dict[str, Any]):
             metric="Loss/Val",
             mode="min",
             scheduler=scheduler,
-            num_samples=20,
+            num_samples=config["tune"],
         ),
         run_config=air.RunConfig(name="brnames_asha", callbacks=ray_callbacks,checkpoint_config=air.CheckpointConfig(1,"Loss/Val","min")
                                  ),
@@ -287,7 +286,7 @@ if __name__ == "__main__":
         exit()
     else:
         torch.manual_seed(1337)
-        if config["tune"]:
+        if config["tune"] is not None:
             train_tune(config)
         else:
             train_single(config, config["datapath"], config["max_epochs"])
