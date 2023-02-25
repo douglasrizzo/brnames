@@ -189,7 +189,7 @@ def train_single(config: Dict[str, Any], data_path: Path, max_epochs: int) -> No
     # tune automatically logs the values listed in TuneReportCallback, so we don't configure loggers to Lightning
     trainer = pl.Trainer(
         logger=False,
-        gpus=1,
+        accelerator="gpu",
         max_epochs=max_epochs,
         val_check_interval=0.5,
         precision=16,
