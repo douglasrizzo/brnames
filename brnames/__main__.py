@@ -233,7 +233,7 @@ def train_tune(config: Dict[str, Any]):
         "n_embd": tune.choice([128, 256, 384, 512]),
         "n_head": tune.sample_from(gen_n_head),
         "dropout": tune.choice([0.1, 0.2, 0.25, 0.3, 0.4, 0.5]),
-        "activation": tune.choice(["relu", "gelu"]),
+        "activation": tune.choice(["selu", "silu"]),
         "n_layer": tune.choice([2, 3, 4, 5, 6]), }
 
     resources_per_trial = {"cpu": 8, "gpu": 1}

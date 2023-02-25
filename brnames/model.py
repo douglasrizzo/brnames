@@ -9,6 +9,8 @@ from torch import nn
 ACTIVATIONS = {
     "relu": nn.ReLU,
     "gelu": nn.GELU,
+    "silu": nn.SiLU,
+    "selu": nn.SELU,
     "leaky_relu": nn.LeakyReLU,
     "sigmoid": nn.Sigmoid,
     "tanh": nn.Tanh, }
