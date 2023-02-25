@@ -11,7 +11,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from ray import air, tune
 from ray.air.integrations.wandb import WandbLoggerCallback
-from ray.tune.integration.pytorch_lightning import TuneReportCallback
+from ray.tune.integration.pytorch_lightning import TuneReportCheckpointCallback
 from ray.tune.schedulers import ASHAScheduler
 
 from .data import NGramDataModule
@@ -196,14 +196,14 @@ def train_single(config: Dict[str, Any], data_path: Path, max_epochs: int) -> No
         auto_scale_batch_size=True,
         enable_progress_bar=False,
         callbacks=[
-            TuneReportCallback(["Loss/Val", "Loss/Train"], on="validation_end"),
-            ModelCheckpoint(
-                filename="epoch={epoch}-val_loss={Loss/Val:.4f}",
-                auto_insert_metric_name=False,
-                monitor="Loss/Val",
-                save_top_k=1,
-                mode="min",
-            ),
+            TuneReportCheckpointCallback(["Loss/Val", "Loss/Train"], on="validation_end"),
+            # ModelCheckpoint(
+            #     filename="epoch={epoch}-val_loss={Loss/Val:.4f}",
+            #     auto_insert_metric_name=False,
+            #     monitor="Loss/Val",
+            #     save_top_k=1,
+            #     mode="min",
+            # ),
             EarlyStopping("Loss/Val", 0.001, 30), ],
     )
     trainer.tune(model, datamodule=datamodule)
@@ -260,7 +260,8 @@ def train_tune(config: Dict[str, Any]):
             scheduler=scheduler,
             num_samples=20,
         ),
-        run_config=air.RunConfig(name="brnames_asha", callbacks=ray_callbacks),
+        run_config=air.RunConfig(name="brnames_asha", callbacks=ray_callbacks,checkpoint_config=air.CheckpointConfig(1,"Loss/Val","min")
+                                 ),
         param_space=tune_config,
     )
 
