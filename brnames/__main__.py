@@ -10,9 +10,6 @@ from ray import tune
 from .model import ACTIVATIONS, Transformer
 from .training import train_single, train_tune
 
-WANDB_PROJECT_NAME = "brnames"
-WANDB_GROUP_NAME = "tune"
-
 
 def get_config() -> Dict[str, Any]:
     parser = ArgumentParser(

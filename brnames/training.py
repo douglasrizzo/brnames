@@ -11,7 +11,11 @@ from ray.tune.integration.pytorch_lightning import TuneReportCheckpointCallback
 from ray.tune.schedulers import ASHAScheduler
 
 from .data import NGramDataModule
-from .model import ACTIVATIONS, Transformer
+from .model import Transformer
+
+
+WANDB_PROJECT_NAME = "brnames"
+WANDB_GROUP_NAME = "tune"
 
 
 def train_single(config: Dict[str, Any], data_path: Path, max_epochs: int) -> None:
@@ -24,7 +28,7 @@ def train_single(config: Dict[str, Any], data_path: Path, max_epochs: int) -> No
         max_epochs=max_epochs,
         val_check_interval=0.5,
         precision=16,
-        auto_scale_batch_size=True,
+        auto_scale_batch_size="binsearch",
         enable_progress_bar=False,
         callbacks=[
             TuneReportCheckpointCallback(["Loss/Val", "Loss/Train"], on="validation_end"),
