@@ -166,6 +166,7 @@ def get_config() -> Dict[str, Any]:
     )
     args = parser.parse_args()
     args.datapath = Path(args.datapath)
+    args.datapath.mkdir(parents=True, exist_ok=True)
     if args.gen is not None:
         args.gen = Path(args.gen[0]), int(args.gen[1])
     return vars(args)
