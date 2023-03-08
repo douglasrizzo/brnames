@@ -28,7 +28,7 @@ def train_single(config: Dict[str, Any], data_path: Path, max_epochs: int) -> No
         max_epochs=max_epochs,
         val_check_interval=0.5,
         precision=16,
-        auto_scale_batch_size="binsearch",
+        auto_scale_batch_size=True,
         enable_progress_bar=False,
         callbacks=[
             TuneReportCheckpointCallback(["Loss/Val", "Loss/Train"], on="validation_end"),
