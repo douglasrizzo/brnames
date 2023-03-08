@@ -1,9 +1,11 @@
 from abc import ABC
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
+from torch.optim import Optimizer
+from torch.optim.lr_scheduler import _LRScheduler
 from torch import nn
 
 ACTIVATIONS = {
@@ -13,7 +15,8 @@ ACTIVATIONS = {
     "selu": nn.SELU,
     "leaky_relu": nn.LeakyReLU,
     "sigmoid": nn.Sigmoid,
-    "tanh": nn.Tanh, }
+    "tanh": nn.Tanh,
+}
 
 
 class SelfAttentionHead(nn.Module):
@@ -28,14 +31,14 @@ class SelfAttentionHead(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         # input of size (batch, time-step, channels)
         # output of size (batch, time-step, head size)
         B, T, C = x.shape
         k = self.key(x)  # (B,T,hs)
         q = self.query(x)  # (B,T,hs)
         # compute attention scores ("affinities")
-        wei = q @ k.transpose(-2, -1) * k.shape[-1]**-0.5  # (B, T, hs) @ (B, hs, T) -> (B, T, T)
+        wei = q @ k.transpose(-2, -1) * k.shape[-1] ** -0.5  # (B, T, hs) @ (B, hs, T) -> (B, T, T)
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float("-inf"))  # (B, T, T)
         wei = F.softmax(wei, dim=-1)  # (B, T, T)
         wei = self.dropout(wei)
@@ -76,12 +79,13 @@ class SequentialMultiHeadAttention(MultiHeadAttention):
 
     def __init__(self, n_embd: int, block_size: int, n_head: int, dropout: float):
         super().__init__(n_embd, n_head)
-        self.heads = nn.ModuleList([
-            SelfAttentionHead(n_embd, self.head_size, block_size, dropout) for _ in range(n_head)])
+        self.heads = nn.ModuleList(
+            [SelfAttentionHead(n_embd, self.head_size, block_size, dropout) for _ in range(n_head)]
+        )
         self.proj = nn.Linear(self.head_size * n_head, n_embd)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         out = torch.cat([h(x) for h in self.heads], dim=-1)
         out = self.dropout(self.proj(out))
         return out
@@ -106,7 +110,7 @@ class ParallelMultiHeadAttention(MultiHeadAttention):
         self.proj = nn.Linear(n_embd, n_embd)
         self.res_dropout = nn.Dropout(dropout)
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         # input of size (batch, time-step, channels)
         # output of size (batch, time-step, head size)
         B, T, C = x.shape
@@ -118,14 +122,15 @@ class ParallelMultiHeadAttention(MultiHeadAttention):
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
 
         # compute attention scores ("affinities")
-        wei = q @ k.transpose(-2, -1) * k.shape[-1]**-0.5  # (B, T, hs) @ (B, hs, T) -> (B, T, T)
+        wei = q @ k.transpose(-2, -1) * k.shape[-1] ** -0.5  # (B, T, hs) @ (B, hs, T) -> (B, T, T)
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float("-inf"))  # (B, T, T)
         wei = F.softmax(wei, dim=-1)  # (B, T, T)
         wei = self.attn_dropout(wei)
         # perform the weighted aggregation of the values
         out = wei @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
-        out = (out.transpose(1, 2).contiguous().view(
-            B, T, C))  # re-assemble all head outputs side by side
+        out = (
+            out.transpose(1, 2).contiguous().view(B, T, C)
+        )  # re-assemble all head outputs side by side
         out = self.res_dropout(self.proj(out))
         return out
 
@@ -147,7 +152,7 @@ class FeedForward(nn.Module):
             nn.Dropout(dropout),
         )
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
 
 
@@ -173,7 +178,7 @@ class Block(nn.Module):
         self.ln2 = nn.LayerNorm(n_embd)
         self.ffwd = FeedForward(n_embd, dropout, activation)
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x + self.sa(self.ln1(x))
         x = x + self.ffwd(self.ln2(x))
         return x
@@ -206,15 +211,19 @@ class Transformer(pl.LightningModule):
         # each token directly reads off the logits for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(config["vocab_size"], config["n_embd"])
         self.position_embedding_table = nn.Embedding(config["block_size"], config["n_embd"])
-        self.blocks = nn.Sequential(*[
-            Block(
-                config["n_embd"],
-                config["block_size"],
-                config["n_head"],
-                config["dropout"],
-                config["activation"],
-                config["parallel_sa"],
-            ) for _ in range(config["n_layer"])])
+        self.blocks = nn.Sequential(
+            *[
+                Block(
+                    config["n_embd"],
+                    config["block_size"],
+                    config["n_head"],
+                    config["dropout"],
+                    config["activation"],
+                    config["parallel_sa"],
+                )
+                for _ in range(config["n_layer"])
+            ]
+        )
         self.ln_f = nn.LayerNorm(config["n_embd"])  # final layer norm
         self.lm_head = nn.Linear(config["n_embd"], config["vocab_size"])
 
@@ -231,7 +240,7 @@ class Transformer(pl.LightningModule):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx: torch.Tensor):
+    def forward(self, idx: torch.Tensor) -> torch.Tensor:
         B, T = idx.shape
         # idx and targets are both (B,T) tensor of integers
         tok_emb = self.token_embedding_table(idx)  # (B,T,C)
@@ -242,14 +251,14 @@ class Transformer(pl.LightningModule):
         logits = self.lm_head(x)  # (B,T,vocab_size)
         return logits
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch, batch_idx) -> torch.Tensor:
         X, Y = batch
         logits = self(X)
         loss = F.cross_entropy(logits[:, -1, :], Y)
         self.log("Loss/Train", loss)
         return loss
 
-    def validation_step(self, batch, batch_idx):
+    def validation_step(self, batch, batch_idx) -> torch.Tensor:
         X, Y = batch
         logits = self(X)
         loss = F.cross_entropy(logits[:, -1, :], Y)
@@ -263,7 +272,9 @@ class Transformer(pl.LightningModule):
     #     else:
     #         print(f"Sample: {', '.join(words)}")
 
-    def configure_optimizers(self):
+    def configure_optimizers(
+        self,
+    ) -> Dict[str, Union[Optimizer, _LRScheduler, torch.optim.lr_scheduler.ReduceLROnPlateau, str]]:
         if self.optimizer == "sgd":
             optimizer = torch.optim.SGD(
                 params=self.parameters(),
@@ -328,7 +339,8 @@ class Transformer(pl.LightningModule):
         return {
             "optimizer": optimizer,
             "lr_scheduler": scheduler,
-            "monitor": "Loss/Val", }
+            "monitor": "Loss/Val",
+        }
 
     @torch.no_grad()
     def generate(self, n: int = 2):
@@ -348,14 +360,21 @@ class Transformer(pl.LightningModule):
         return inpute
 
     @staticmethod
-    def decode(l: List[int]):
+    def validate_n_head(n_head: List[int], n_embd: int) -> List[int]:
+        return [x for x in n_head if n_embd % x == 0]
+
+    @staticmethod
+    def decode(int_list: List[int]) -> str:
         """Take a list of integers, output a string"""
-        return "".join([Transformer.itos[i] for i in l])
+        return "".join([Transformer.itos[i] for i in int_list])
 
     @staticmethod
     def posprocess_generated_words(output: torch.Tensor) -> List[str]:
+        # strip the start/end token from the beginning and end of each sequence
         samples = [Transformer.decode(out).strip(".") for out in output.tolist()]
+        # find the first start/end token in each sequence, if it erxists, and strip everything after it
         samples = [
-            sample[:sample.find(".")] if sample.find(".") != -1 else sample for sample in samples]
+            sample[: sample.find(".")] if sample.find(".") != -1 else sample for sample in samples
+        ]
 
         return samples
