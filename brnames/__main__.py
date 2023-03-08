@@ -21,7 +21,7 @@ def get_config() -> Dict[str, Any]:
     group.add_argument(
         "--datapath",
         type=str,
-        default="data.csv",
+        default="/tmp/brnames/data.csv",
         help="Number of training examples utilized in one iteration.",
     )
     group.add_argument(
