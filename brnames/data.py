@@ -24,11 +24,12 @@ class NGramDataset(Dataset):
 
 class NGramDataModule(LightningDataModule):
 
-    def __init__(self, datapath: Path, batch_size: int, num_workers: int):
+    def __init__(self, datapath: Path, batch_size: int, num_workers: int, verbose:bool=True):
         super().__init__()
         self.datapath = datapath
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.verbose=verbose
 
     def prepare_data(self):
         if not self.datapath.exists():
@@ -47,57 +48,59 @@ class NGramDataModule(LightningDataModule):
             words = [line.split(",")[0].lower() for line in f.readlines()]
         # remove file header
         words = words[1:]
-        print(f"Words before sanitizing: {len(words)}")
-
+        self.words_before_saniting = len(words)
         # sanitize data
         expected_vocab = "abcdefghijklmnopqrstuvwxyz"
         for name in track(words, description="Sanitizing"):
             if any(c not in expected_vocab for c in name):
                 words.remove(name)
-        print(f"Words after sanitizing: {len(words)}")
+        self.words_after_saniting = len(words)
         words = list(set(words))
-        print(f"Words after removing duplicates: {len(words)}")
-
-        shortest = min(len(word) for word in words)
-        longest = max(len(word) for word in words)
-        print(f"Shortest word: {shortest}, longest word: {longest}")
-
+        self.words_without_duplicates = len(words)
+        self.len_shortest_word = min(len(word) for word in words)
         # how many letters we'll see to predict the next one
-        self.block_size = longest
-
-        text = "".join(words)
+        self.block_size = max(len(word) for word in words)
 
         # here are all the unique characters that occur in this text
+        text = "".join(words)
         chars = sorted(list(set("." + text)))
         self.vocab_size = len(chars)
 
         # create a mapping from characters to integers
         stoi = {ch: i for i, ch in enumerate(chars)}
 
-        random.shuffle(words)  # shuffle to prevent a bad train/val split
+        random.shuffle(words)  # shuffle words to prevent a bad train/val split
         n = int(0.9 * len(words))  # first 90% of words will be train, rest val
         train_set, val_set = [], []
-        n_examples = 0
+        self.total_ngrams = 0
         # generate tokenized n-grams and put them in the train or val list
         for idx, word in track(enumerate(words), description="n-gramizing"):
             context = [stoi["."]] * self.block_size
             data = train_set if idx <= n else val_set
             for ch in word + ".":
                 ix = stoi[ch]
-                n_examples += 1
+                self.total_ngrams += 1
                 data.append(context + [ix])
                 context = context[1:] + [ix]
-        print(f"Number of n-grams: {n_examples}")
 
         train_set, val_set = torch.tensor(train_set), torch.tensor(val_set)
         # separate last column, containing targets
-        self.train_X, self.train_Y = train_set[:, :-1], train_set[:, -1]
-        self.val_X, self.val_Y = val_set[:, :-1], val_set[:, -1]
+        self.train_split = NGramDataset(train_set[:, :-1], train_set[:, -1])
+        self.val_split = NGramDataset(val_set[:, :-1], val_set[:, -1])
+        
+        if self.verbose:
+            print(self)
+        
+    def __repr__(self) -> str:
+        return (f"Words before sanitizing: {self.words_before_saniting}\n"
+        f"Words after sanitizing: {self.words_after_saniting}\n"
+        f"Words after removing duplicates: {self.words_without_duplicates}\n"
+        f"Shortest word: {self.len_shortest_word}, longest word: {self.block_size}\n"
+        f"Number of n-grams: {self.total_ngrams}")
 
     def train_dataloader(self):
-        train_split = NGramDataset(self.train_X, self.train_Y)
         return DataLoader(
-            train_split,
+            self.train_split,
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
@@ -105,9 +108,8 @@ class NGramDataModule(LightningDataModule):
         )
 
     def val_dataloader(self):
-        val_split = NGramDataset(self.val_X, self.val_Y)
         return DataLoader(
-            val_split,
+            self.val_split,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
