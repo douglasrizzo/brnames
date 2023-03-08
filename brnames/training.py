@@ -58,7 +58,7 @@ def train_tune(train_config: Dict[str, Any], param_space: Dict[str, Any]):
     tuner = tune.Tuner(
         tune.with_resources(
             train_fn_with_parameters,
-            resources={"cpu": 8, "gpu": 0.55},
+            resources={"cpu": 8, "gpu": 1},
         ),
         tune_config=tune.TuneConfig(
             metric="Loss/Val",
