@@ -114,24 +114,5 @@ class NGramDataModule(LightningDataModule):
             worker_init_fn=_init_loader_seed,
         )
 
-    def compute_class_weights(self) -> torch.Tensor:
-        self.prepare_data()
-        self.setup(stage="fit")
-        return torch.tensor(
-            compute_class_weight(
-                class_weight="balanced",
-                classes=self.train_Y.unique().numpy(),
-                y=self.train_Y.numpy(),
-            ),
-            dtype=torch.float32,
-        )
-
-
 def _init_loader_seed(worker_id):
     random.seed(random.getstate()[1][0] + worker_id)
-    # def test_dataloader(self):
-    #     test_split = NGramDataset(self.test_X, self.test_Y)
-    #     return DataLoader(test_split)
-    # def teardown(self):
-    #     # clean up after fit or test
-    #     # called on every process in DDP
