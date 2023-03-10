@@ -4,16 +4,15 @@ from typing import Any, Dict
 import pytorch_lightning as pl
 import ray
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+from pytorch_lightning.callbacks.progress.rich_progress import RichProgressBar
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from ray import air, tune
-from pytorch_lightning.callbacks.progress.rich_progress import RichProgressBar
 from ray.air.integrations.wandb import WandbLoggerCallback
 from ray.tune.integration.pytorch_lightning import TuneReportCheckpointCallback
 from ray.tune.schedulers import ASHAScheduler
 
 from .data import NGramDataModule
 from .model import Transformer
-
 
 WANDB_PROJECT_NAME = "brnames"
 WANDB_GROUP_NAMES = {"tune": "tune", "standalone": "standalone"}

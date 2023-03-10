@@ -8,7 +8,6 @@ from torch.utils.data import DataLoader, Dataset
 
 
 class NGramDataset(Dataset):
-
     def __init__(self, X: torch.Tensor, Y: torch.Tensor) -> None:
         self.X = X
         self.Y = Y
@@ -23,13 +22,12 @@ class NGramDataset(Dataset):
 
 
 class NGramDataModule(LightningDataModule):
-
-    def __init__(self, datapath: Path, batch_size: int, num_workers: int, verbose:bool=True):
+    def __init__(self, datapath: Path, batch_size: int, num_workers: int, verbose: bool = True):
         super().__init__()
         self.datapath = datapath
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.verbose=verbose
+        self.verbose = verbose
 
     def prepare_data(self):
         if not self.datapath.exists():
@@ -87,16 +85,18 @@ class NGramDataModule(LightningDataModule):
         # separate last column, containing targets
         self.train_split = NGramDataset(train_set[:, :-1], train_set[:, -1])
         self.val_split = NGramDataset(val_set[:, :-1], val_set[:, -1])
-        
+
         if self.verbose:
             print(self)
-        
+
     def __repr__(self) -> str:
-        return (f"Words before sanitizing: {self.words_before_saniting}\n"
-        f"Words after sanitizing: {self.words_after_saniting}\n"
-        f"Words after removing duplicates: {self.words_without_duplicates}\n"
-        f"Shortest word: {self.len_shortest_word}, longest word: {self.block_size}\n"
-        f"Number of n-grams: {self.total_ngrams}")
+        return (
+            f"Words before sanitizing: {self.words_before_saniting}\n"
+            f"Words after sanitizing: {self.words_after_saniting}\n"
+            f"Words after removing duplicates: {self.words_without_duplicates}\n"
+            f"Shortest word: {self.len_shortest_word}, longest word: {self.block_size}\n"
+            f"Number of n-grams: {self.total_ngrams}"
+        )
 
     def train_dataloader(self):
         return DataLoader(
@@ -115,6 +115,7 @@ class NGramDataModule(LightningDataModule):
             num_workers=self.num_workers,
             worker_init_fn=_init_loader_seed,
         )
+
 
 def _init_loader_seed(worker_id):
     random.seed(random.getstate()[1][0] + worker_id)

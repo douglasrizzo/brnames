@@ -4,9 +4,9 @@ from typing import Any, Dict, List, Union
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
+from torch import nn
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import _LRScheduler
-from torch import nn
 
 ACTIVATIONS = {
     "relu": nn.ReLU,
