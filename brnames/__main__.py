@@ -27,7 +27,8 @@ def get_config() -> Dict[str, Any]:
     group.add_argument(
         "--tune",
         type=int,
-        help="If an int is passed, do a hyperparameter search using Ray Tune with the given sample size.",
+        default=None,
+        help="If a positive integer is passed, do a hyperparameter search using Ray Tune with the given sample size.",
     )
     group.add_argument(
         "--wandb",
