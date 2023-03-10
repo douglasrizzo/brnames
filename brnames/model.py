@@ -97,7 +97,9 @@ class ParallelMultiHeadAttention(MultiHeadAttention):
     in which Q,K,V for all heads are computed at the same time.
     """
 
-    def __init__(self, n_embd: int, block_size: int, n_head: int, dropout: float):
+    def __init__(
+        self, n_embd: int, block_size: int, n_head: int, dropout: float, flash: bool = True
+    ):
         super().__init__(n_embd, n_head)
         # key, query, value projections for all heads, but in a batch
         self.c_attn = nn.Linear(n_embd, 3 * n_embd, bias=False)
@@ -106,9 +108,33 @@ class ParallelMultiHeadAttention(MultiHeadAttention):
             torch.tril(torch.ones(block_size, block_size)).view(1, 1, block_size, block_size),
         )
 
+        self.dropout_p = dropout
+
         self.attn_dropout = nn.Dropout(dropout)
         self.proj = nn.Linear(n_embd, n_embd)
         self.res_dropout = nn.Dropout(dropout)
+
+        self.flash = hasattr(torch.nn.functional, "scaled_dot_product_attention") and flash
+        if not self.flash:
+            # causal mask to ensure that attention is only applied to the left in the input sequence
+            self.register_buffer(
+                "tril",
+                torch.tril(torch.ones(block_size, block_size)).view(1, 1, block_size, block_size),
+            )
+            self.tril: torch.Tensor  # unnecessary, this is to appease linters
+
+        if hasattr(torch.nn.functional, "scaled_dot_product_attention"):
+            if flash:
+                print("WARNING: using flash attention.")
+            else:
+                print(
+                    "WARNING: flash attention is available, but will use slow attention at user's request."
+                )
+        elif flash:
+            print(
+                "WARNING: flash attention usage was requested, but is not available. "
+                "Flash Attention requires PyTorch >= 2.0. Will use slow attention instead."
+            )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # input of size (batch, time-step, channels)
@@ -122,12 +148,20 @@ class ParallelMultiHeadAttention(MultiHeadAttention):
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
 
         # compute attention scores ("affinities")
-        wei = q @ k.transpose(-2, -1) * k.shape[-1] ** -0.5  # (B, T, hs) @ (B, hs, T) -> (B, T, T)
-        wei = wei.masked_fill(self.tril[:T, :T] == 0, float("-inf"))  # (B, T, T)
-        wei = F.softmax(wei, dim=-1)  # (B, T, T)
-        wei = self.attn_dropout(wei)
-        # perform the weighted aggregation of the values
-        out = wei @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+        if self.flash:
+            # efficient attention using Flash Attention CUDA kernels
+            out = torch.nn.functional.scaled_dot_product_attention(
+                q, k, v, attn_mask=None, dropout_p=self.dropout_p, is_causal=True
+            )
+        else:
+            att = (
+                q @ k.transpose(-2, -1) * k.shape[-1] ** -0.5
+            )  # (B, T, hs) @ (B, hs, T) -> (B, T, T)
+            att = att.masked_fill(self.tril[:T, :T] == 0, float("-inf"))  # (B, T, T)
+            att = F.softmax(att, dim=-1)  # (B, T, T)
+            att = self.attn_dropout(att)
+            # perform the weighted aggregation of the values
+            out = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         out = (
             out.transpose(1, 2).contiguous().view(B, T, C)
         )  # re-assemble all head outputs side by side

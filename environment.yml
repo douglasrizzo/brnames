@@ -1,12 +1,16 @@
 name: brnames
+channels:
+  - pytorch-nightly
+  - nvidia
 dependencies:
   - python=3.10.*
+  - pytorch
+  - pytorch-cuda=11.8
   - pip
   - pip:
-    - tqdm
-    - rich
-    - wandb
-    - tensorboard
-    - torch
-    - pytorch-lightning
-    - ray[tune]
+      - tqdm
+      - rich
+      - wandb
+      - tensorboard
+      - pytorch-lightning
+      - ray[tune]
