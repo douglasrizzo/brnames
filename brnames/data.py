@@ -1,5 +1,6 @@
 import random
 from pathlib import Path
+from typing import List, Tuple
 
 from unidecode import unidecode
 
@@ -9,9 +10,19 @@ from rich.progress import track
 from torch.utils.data import DataLoader, Dataset
 
 
-def get_vocab_block_size(datapath):
+def get_vocab_block_size(datapath: str) -> Tuple[List[str], int, List[str]]:
+    """
+    Returns the vocabulary, block size, and list of words from a given data file.
+
+    Args:
+        datapath (str): The path to the data file.
+
+    Returns:
+        Tuple[List[str], int, List[str]]: A tuple containing the vocabulary as a list of strings,
+        the block size as an integer, and the list of words as a list of strings.
+    """
     with open(datapath, "r", encoding="utf-8") as f:
-        f.readline()  # ignore first line
+        next(f)  # ignore first line
         words = set()
         vocab = set()
         block_size = 0
@@ -50,6 +61,7 @@ class NGramDataModule(LightningDataModule):
         self.verbose = verbose
 
     def prepare_data(self):
+        """Downloads a file from a given URL and saves it to a specified file path."""
         if not self.datapath.exists():
             # fetch file
             import requests
@@ -125,4 +137,9 @@ class NGramDataModule(LightningDataModule):
 
 
 def _init_loader_seed(worker_id):
+    """Initialize the seed for the loader.
+
+    Parameters:
+        worker_id (int): The ID of the worker.
+    """
     random.seed(random.getstate()[1][0] + worker_id)

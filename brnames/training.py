@@ -22,6 +22,14 @@ WANDB_GROUP_NAMES = {"tune": "tune", "standalone": "standalone"}
 def train_single(
     config: Dict[str, Any], data_path: Path, max_epochs: int, in_tune: bool = False
 ) -> None:
+    """Train a single model using the given configuration and data from a CSV file.
+
+    Parameters:
+        config (Dict[str, Any]): The configuration dictionary containing the model parameters.
+        data_path (Path): The path to the CSV file containing the training data.
+        max_epochs (int): The maximum number of epochs to train the model.
+        in_tune (bool, optional): Whether to use Tune for hyperparameter tuning. Defaults to False.
+    """
     datamodule = NGramDataModule(data_path, 512, 8)
     model = Transformer(config)
 
@@ -60,6 +68,18 @@ def train_single(
 
 
 def train_tune(train_config: Dict[str, Any], param_space: Dict[str, Any]):
+    """
+    Train and tune a model using the given training configuration and parameter space.
+
+    Parameters:
+        train_config (Dict[str, Any]): A dictionary containing the training configuration.
+            - datapath (str): The path to the CSV file containing the training data.
+            - max_epochs (int): The maximum number of epochs for training.
+            - wandb (bool): Whether to use Wandb for logging.
+            - tune (int): The number of samples for hyperparameter tuning.
+
+        param_space (Dict[str, Any]): A dictionary containing the parameter space for hyperparameter tuning.
+    """
     train_fn_with_parameters = tune.with_parameters(
         train_single,
         data_path=train_config["datapath"],

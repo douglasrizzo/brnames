@@ -220,9 +220,6 @@ class Block(nn.Module):
 
 
 class Transformer(pl.LightningModule):
-
-    itos = {i: ch for i, ch in enumerate(sorted(list(set(".abcdefghijklmnopqrstuvwxyz"))))}
-
     def __init__(
         self,
         config: Dict[str, Any],
@@ -241,7 +238,7 @@ class Transformer(pl.LightningModule):
         self.optimizer = config["optimizer"]
         self.parallel_sa = config["parallel_sa"]
         self.weight_decay = config["weight_decay"]
-        self.itos = {i: ch for i, ch in enumerate(config["vocab"])}
+        self.itos = dict(enumerate(config["vocab"]))
         vocab_size = len(config["vocab"])
 
         # used by Lightning to log graph
@@ -262,21 +259,28 @@ class Transformer(pl.LightningModule):
                 for _ in range(config["n_layer"])
             ]
         )
-        self.ln_f = nn.LayerNorm(config["n_embd"])  # final layer norm
+        self.layer_norm = nn.LayerNorm(config["n_embd"])  # final layer norm
         self.lm_head = nn.Linear(config["n_embd"], vocab_size)
 
         # better init, not covered in the original GPT video, but important, will cover in followup video
         self.apply(self._init_weights)
 
     def _init_weights(self, module: nn.Module):
+        """Initialize the weights of the given module.
+
+        Args:
+            module (nn.Module): The module whose weights need to be initialized.
+        """
         if isinstance(module, nn.Linear):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
-            # NOTE not as good as N(0,0.02) init
-            # torch.nn.init.kaiming_normal_(module.weight, nonlinearity=self.activation, a=0.1)
+            torch.nn.init.normal_(
+                module.weight, mean=0.0, std=0.02
+            )  # Initialize weights from N(0, 0.02)
             if module.bias is not None:
-                torch.nn.init.zeros_(module.bias)
+                torch.nn.init.zeros_(module.bias)  # Initialize bias to zeros
         elif isinstance(module, nn.Embedding):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            torch.nn.init.normal_(
+                module.weight, mean=0.0, std=0.02
+            )  # Initialize weights from N(0, 0.02)
 
     def forward(self, idx: torch.Tensor) -> torch.Tensor:
         B, T = idx.shape
@@ -285,11 +289,20 @@ class Transformer(pl.LightningModule):
         pos_emb = self.position_embedding_table(torch.arange(T, device=self.device))  # (T,C)
         x = tok_emb + pos_emb  # (B,T,C)
         x = self.blocks(x)  # (B,T,C)
-        x = self.ln_f(x)  # (B,T,C)
+        x = self.layer_norm(x)  # (B,T,C)
         logits = self.lm_head(x)  # (B,T,vocab_size)
         return logits
 
     def training_step(self, batch, batch_idx) -> torch.Tensor:
+        """Takes in a batch of data and the batch index and performs a training step.
+
+        Args:
+            batch (Tuple): A tuple containing the input data (X) and the target labels (Y).
+            batch_idx (int): The index of the current batch.
+
+        Returns:
+            torch.Tensor: The loss value computed during the training step.
+        """
         X, Y = batch
         logits = self(X)
         loss = F.cross_entropy(logits[:, -1, :], Y)
@@ -304,15 +317,31 @@ class Transformer(pl.LightningModule):
         return loss
 
     def on_validation_epoch_end(self) -> None:
+        """Called at the end of each validation epoch.
+
+        This function post-processes the generated words by calling the `posprocess_generated_words` method
+        with the generated words from the `generate` method. It then logs the generated words using the `logger`
+        object if it has a `log_text` attribute, otherwise it prints the generated words to the console.
+        """
         words = self.posprocess_generated_words(self.generate(10))
         if hasattr(self.logger, "log_text"):
             self.logger.log_text(key="samples", columns=["name"], data=[[name] for name in words])
         else:
             print(f"Sample: {', '.join(words)}")
 
-    def configure_optimizers(
-        self,
-    ) -> Dict[str, Union[Optimizer, _LRScheduler, torch.optim.lr_scheduler.ReduceLROnPlateau, str]]:
+    def configure_optimizers(self):
+        """Configures the optimizers and learning rate schedulers for the model.
+
+        Returns:
+            A dictionary containing the configured optimizer, learning rate scheduler, and monitor.
+                - optimizer: The configured optimizer.
+                - lr_scheduler: The configured learning rate scheduler.
+                - monitor: The name of the monitor.
+
+        Raises:
+            ValueError: If an unrecognized optimizer or learning rate scheduler is provided.
+        """
+        # Configure optimizer
         if self.optimizer == "sgd":
             optimizer = torch.optim.SGD(
                 params=self.parameters(),
@@ -339,6 +368,7 @@ class Transformer(pl.LightningModule):
         else:
             raise ValueError(f"Unrecognized optimizer '{self.optimizer}'")
 
+        # Configure learning rate scheduler
         if self.lr_scheduler == "cosine":
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 optimizer,
@@ -348,9 +378,9 @@ class Transformer(pl.LightningModule):
         elif self.lr_scheduler == "reduce_on_plateau":
             scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
                 optimizer,
-                "min",
-                self.lr_factor,
-                self.lr_patience,
+                mode="min",
+                factor=self.lr_factor,
+                patience=self.lr_patience,
                 threshold=1e-3,
                 threshold_mode="abs",
                 min_lr=1e-6,
@@ -369,7 +399,7 @@ class Transformer(pl.LightningModule):
         elif self.lr_scheduler == "constant":
             scheduler = torch.optim.lr_scheduler.LambdaLR(
                 optimizer,
-                lambda _: 1.0,
+                lr_lambda=lambda _: 1.0,
             )
         else:
             raise ValueError(f"Unrecognized lr_scheduler '{self.lr_scheduler}'")
@@ -382,6 +412,14 @@ class Transformer(pl.LightningModule):
 
     @torch.no_grad()
     def generate(self, n: int = 2):
+        """Generates a sequence of tokens using the current model.
+
+        Args:
+            n (int): The number of sequences to generate. Defaults to 2.
+
+        Returns:
+            torch.Tensor: The generated sequence of tokens.
+        """
         inpute = torch.tensor([[0] * self.block_size] * n, device=self.device)
         # generate until first character is not a . anymore
         while inpute[0, 0] == 0:
@@ -399,13 +437,37 @@ class Transformer(pl.LightningModule):
 
     @staticmethod
     def validate_n_head(n_head: List[int], n_embd: int) -> List[int]:
+        """Validate the number of heads for a given embedding size.
+
+        Args:
+            n_head (List[int]): A list of integers representing the number of heads.
+            n_embd (int): An integer representing the embedding size.
+
+        Returns:
+            List[int]: A list of valid number of heads that evenly divide the embedding size.
+        """
         return [x for x in n_head if n_embd % x == 0]
 
     def decode(self, int_list: List[int]) -> str:
-        """Take a list of integers, output a string"""
+        """Decode the given list of integers into a string representation.
+
+        Parameters:
+            int_list (List[int]): A list of integers to be decoded.
+
+        Returns:
+            str: The decoded string representation of the given integers.
+        """
         return "".join([self.itos[i] for i in int_list])
 
     def posprocess_generated_words(self, output: torch.Tensor) -> List[str]:
+        """Strip the start/end token from the beginning and end of each sequence in the given output tensor and return a list of processed words.
+
+        Parameters:
+        - output (torch.Tensor): The output tensor containing the generated words.
+
+        Returns:
+        - List[str]: A list of processed words with the start/end tokens removed.
+        """
         # strip the start/end token from the beginning and end of each sequence
         samples = [self.decode(out).strip(".") for out in output.tolist()]
         # find the first start/end token in each sequence, if it erxists, and strip everything after it
