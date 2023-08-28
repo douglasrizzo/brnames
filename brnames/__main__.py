@@ -3,9 +3,10 @@ from argparse import ArgumentParser
 from pathlib import Path
 from random import choice
 from typing import Any, Dict
-
 import torch
 from ray import tune
+
+from brnames.data import get_vocab_block_size
 
 from .model import ACTIVATIONS, Transformer
 from .training import train_single, train_tune
@@ -169,6 +170,8 @@ def get_config() -> Dict[str, Any]:
     args.datapath = Path(args.datapath)
     args.datapath.parent.mkdir(parents=True, exist_ok=True)
 
+    args.vocab, args.block_size, _ = get_vocab_block_size(args.datapath)
+
     if args.gen is not None:
         args.gen = Path(args.gen[0]), int(args.gen[1])
     return vars(args)
@@ -176,8 +179,6 @@ def get_config() -> Dict[str, Any]:
 
 if __name__ == "__main__":
     config = get_config()
-    config["vocab_size"] = 27
-    config["block_size"] = 15
 
     if config["gen"] is not None:
         # load checkpoint
@@ -190,18 +191,18 @@ if __name__ == "__main__":
         torch.manual_seed(1337)
         if config["tune"] is not None:
             param_space = {
-                "optimizer": "adamw",
+                "optimizer": config["optimizer"],
                 "weight_decay": tune.choice([5e-3, 1e-3]),
-                "momentum": None,
+                "momentum": config["momentum"],
                 "lr": tune.choice([2e-4, 3.5e-4, 5e-4, 6.5e-4, 8e-4]),
                 "lr_scheduler": "reduce_on_plateau",
-                "lr_factor": 0.2,
-                "lr_patience": 10,
-                "betas": [0.9, 0.999],
-                "vocab_size": 27,
-                "block_size": 15,
-                "amsgrad": True,
-                "parallel_sa": True,
+                "lr_factor": config["lr_factor"],
+                "block_size": config["block_size"],
+                "vocab": config["vocab"],
+                "lr_patience": config["lr_patience"],
+                "betas": config["betas"],
+                "amsgrad": config["amsgrad"],
+                "parallel_sa": config["parallel_sa"],
                 "n_embd": tune.choice([128, 256, 384, 512]),
                 "n_head": tune.sample_from(
                     lambda spec: choice(

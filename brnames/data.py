@@ -1,10 +1,30 @@
 import random
 from pathlib import Path
 
+from unidecode import unidecode
+
 import torch
 from pytorch_lightning import LightningDataModule
 from rich.progress import track
 from torch.utils.data import DataLoader, Dataset
+
+
+def get_vocab_block_size(datapath):
+    with open(datapath, "r", encoding="utf-8") as f:
+        f.readline()  # ignore first line
+        words = set()
+        vocab = set()
+        block_size = 0
+        while True:
+            next_line = f.readline()
+            if not next_line:
+                break
+
+            next_line = unidecode(next_line.split(",")[0].strip().lower())
+            vocab = vocab.union(set(next_line))
+            block_size = max(block_size, len(next_line))
+            words.add(next_line)
+    return sorted(list(vocab) + ["."]), block_size, list(words)
 
 
 class NGramDataset(Dataset):
@@ -41,40 +61,27 @@ class NGramDataModule(LightningDataModule):
                     f.write(response.text)
 
     def setup(self, stage):
-        # read the csv, get only names
-        with open(self.datapath, "r", encoding="utf-8") as f:
-            words = [line.split(",")[0].lower() for line in f.readlines()]
-        # remove file header
-        words = words[1:]
-        self.words_before_saniting = len(words)
-        # sanitize data
-        expected_vocab = "abcdefghijklmnopqrstuvwxyz"
-        for name in track(words, description="Sanitizing"):
-            if any(c not in expected_vocab for c in name):
-                words.remove(name)
-        self.words_after_saniting = len(words)
-        words = list(set(words))
-        self.words_without_duplicates = len(words)
+        self.vocab, self.block_size, words = get_vocab_block_size(self.datapath)
         self.len_shortest_word = min(len(word) for word in words)
-        # how many letters we'll see to predict the next one
-        self.block_size = max(len(word) for word in words)
 
         # here are all the unique characters that occur in this text
-        text = "".join(words)
-        chars = sorted(list(set("." + text)))
-        self.vocab_size = len(chars)
+        self.vocab_size = len(self.vocab)
 
         # create a mapping from characters to integers
-        stoi = {ch: i for i, ch in enumerate(chars)}
+        stoi = {ch: i for i, ch in enumerate(self.vocab)}
+
+        self.dataset_size = len(words)
+        # first 90% of words will be train, rest val
+        self.train_size = int(0.9 * self.dataset_size)
+        self.test_size = self.dataset_size - self.train_size
 
         random.shuffle(words)  # shuffle words to prevent a bad train/val split
-        n = int(0.9 * len(words))  # first 90% of words will be train, rest val
         train_set, val_set = [], []
         self.total_ngrams = 0
         # generate tokenized n-grams and put them in the train or val list
         for idx, word in track(enumerate(words), description="n-gramizing"):
             context = [stoi["."]] * self.block_size
-            data = train_set if idx <= n else val_set
+            data = train_set if idx <= self.train_size else val_set
             for ch in word + ".":
                 ix = stoi[ch]
                 self.total_ngrams += 1
@@ -91,9 +98,9 @@ class NGramDataModule(LightningDataModule):
 
     def __repr__(self) -> str:
         return (
-            f"Words before sanitizing: {self.words_before_saniting}\n"
-            f"Words after sanitizing: {self.words_after_saniting}\n"
-            f"Words after removing duplicates: {self.words_without_duplicates}\n"
+            f"Vocabulary size: {self.vocab_size}\n"
+            f"Words in dataset: {self.dataset_size}\n"
+            f"Training set size: {self.train_size}, test set size: {self.test_size}\n"
             f"Shortest word: {self.len_shortest_word}, longest word: {self.block_size}\n"
             f"Number of n-grams: {self.total_ngrams}"
         )

@@ -240,10 +240,13 @@ class Transformer(pl.LightningModule):
         self.optimizer = config["optimizer"]
         self.parallel_sa = config["parallel_sa"]
         self.weight_decay = config["weight_decay"]
+        self.itos = {i: ch for i, ch in enumerate(config["vocab"])}
+        vocab_size = len(config["vocab"])
+
         # used by Lightning to log graph
         self.example_input_array = torch.zeros((1, config["block_size"]), dtype=torch.long)
         # each token directly reads off the logits for the next token from a lookup table
-        self.token_embedding_table = nn.Embedding(config["vocab_size"], config["n_embd"])
+        self.token_embedding_table = nn.Embedding(vocab_size, config["n_embd"])
         self.position_embedding_table = nn.Embedding(config["block_size"], config["n_embd"])
         self.blocks = nn.Sequential(
             *[
@@ -259,7 +262,7 @@ class Transformer(pl.LightningModule):
             ]
         )
         self.ln_f = nn.LayerNorm(config["n_embd"])  # final layer norm
-        self.lm_head = nn.Linear(config["n_embd"], config["vocab_size"])
+        self.lm_head = nn.Linear(config["n_embd"], vocab_size)
 
         # better init, not covered in the original GPT video, but important, will cover in followup video
         self.apply(self._init_weights)
@@ -397,15 +400,13 @@ class Transformer(pl.LightningModule):
     def validate_n_head(n_head: List[int], n_embd: int) -> List[int]:
         return [x for x in n_head if n_embd % x == 0]
 
-    @staticmethod
-    def decode(int_list: List[int]) -> str:
+    def decode(self, int_list: List[int]) -> str:
         """Take a list of integers, output a string"""
-        return "".join([Transformer.itos[i] for i in int_list])
+        return "".join([self.itos[i] for i in int_list])
 
-    @staticmethod
-    def posprocess_generated_words(output: torch.Tensor) -> List[str]:
+    def posprocess_generated_words(self, output: torch.Tensor) -> List[str]:
         # strip the start/end token from the beginning and end of each sequence
-        samples = [Transformer.decode(out).strip(".") for out in output.tolist()]
+        samples = [self.decode(out).strip(".") for out in output.tolist()]
         # find the first start/end token in each sequence, if it erxists, and strip everything after it
         samples = [
             sample[: sample.find(".")] if sample.find(".") != -1 else sample for sample in samples
