@@ -6,6 +6,7 @@ import ray
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.callbacks.progress.rich_progress import RichProgressBar
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
+from pytorch_lightning.tuner import Tuner
 from ray import air, tune
 from ray.air.integrations.wandb import WandbLoggerCallback
 from ray.tune.integration.pytorch_lightning import TuneReportCheckpointCallback
@@ -48,11 +49,13 @@ def train_single(
         max_epochs=max_epochs,
         val_check_interval=0.5,
         precision=16,
-        auto_scale_batch_size=True,
         enable_progress_bar=not in_tune,
         callbacks=callbacks,
     )
-    trainer.tune(model, datamodule=datamodule)
+    # Create a tuner for the trainer
+    tuner = Tuner(trainer)
+    # Auto-scale batch size by growing it exponentially (default)
+    tuner.scale_batch_size(model, datamodule=datamodule)
     trainer.fit(model, datamodule=datamodule)
 
 
