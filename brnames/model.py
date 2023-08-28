@@ -150,9 +150,10 @@ class ParallelMultiHeadAttention(MultiHeadAttention):
         # compute attention scores ("affinities")
         if self.flash:
             # efficient attention using Flash Attention CUDA kernels
-            out = torch.nn.functional.scaled_dot_product_attention(
-                q, k, v, attn_mask=None, dropout_p=self.dropout_p, is_causal=True
-            )
+            with torch.backends.cuda.sdp_kernel(enable_math=False):
+                out = torch.nn.functional.scaled_dot_product_attention(
+                    q, k, v, attn_mask=None, dropout_p=self.dropout_p, is_causal=True
+                )
         else:
             att = (
                 q @ k.transpose(-2, -1) * k.shape[-1] ** -0.5
