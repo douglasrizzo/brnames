@@ -8,7 +8,7 @@ The models came from:
 
 - <https://github.com/karpathy/ng-video-lecture/> (base models)
 - <https://github.com/karpathy/makemore/> (n-gram training strategy)
-- <https://github.com/karpathy/nanogpt/> (parallelized implementation of multi-head self-attention)
+- <https://github.com/karpathy/nanogpt/> (parallelized and flash implementation of multi-head self-attention)
 
 Some pretty fun names are generated, check the sample at [sample.txt](sample.txt).
 
@@ -27,21 +27,15 @@ A single module does everything, its documentation can be accessed with:
 python -m brnames -h
 ```
 
-Training uses PyTorch Lightning + Ray Tune. I experienced crashes when letting the script start its own Ray cluster, so I start it manually with:
-
-```sh
-ray start --head
-```
-
-Then, to train a default module, use:
+To train a default module, use:
 
 ```sh
 python -m brnames
 ```
 
-Batch size is found automatically by Lightning to fill GPU memory.
+Batch size is found automatically by PyTorch Lightning using the power rule to fill GPU memory.
 
-To train multiple models using a predefined hyperparameter sweep, use the `--tune` flag, which will ignore most other flags related to configuring the model and training.
+To train multiple models using a predefined hyperparameter sweep with Ray Tune, use the `--tune` flag, which will ignore most other flags related to configuring the model and training. When using Tune, make sure your computer has a static IP and stable connection or you can have connection issues midway, even if running locally. The module with try to connect to an existing cluster and will start one if none are found.
 
 If you are logged into Weights & Biases, you can log to a project called `brnames` by using the `--wandb` flag. Ray Tune also logs to TensorBoard by default in the `~/ray_results` directory.
 
@@ -55,7 +49,7 @@ python -m brnames --gen <path to checkpoint file> <number of names to generate>
 
 This will generate names in a file called `sample.txt`.
 
-Checkpoint files are saved inside `~/ray_results`. A full example of the scipt call could be:
+Checkpoint files are saved inside `~/ray_results`. A full example of the script call could be:
 
 ```sh
 python -m brnames --gen ~/ray_results/brnames_asha/train_single_7a274_00000_0_activation=relu,dropout=0.3000,lr=0.0003,n_embd=128,n_head=2,n_layer=6,weight_decay=0.0050_2023-02-24_03-35-49/checkpoints/epoch=164-val_loss=1.6643.ckpt 25
