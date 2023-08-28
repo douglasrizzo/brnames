@@ -302,12 +302,12 @@ class Transformer(pl.LightningModule):
         self.log("Loss/Val", loss)
         return loss
 
-    # def validation_epoch_end(self, outputs) -> None:
-    #     words = self.posprocess_generated_words(self.generate(10))
-    #     if hasattr(self.logger, "log_text"):
-    #         self.logger.log_text(key="samples", columns=["name"], data=[[name] for name in words])
-    #     else:
-    #         print(f"Sample: {', '.join(words)}")
+    def on_validation_epoch_end(self) -> None:
+        words = self.posprocess_generated_words(self.generate(10))
+        if hasattr(self.logger, "log_text"):
+            self.logger.log_text(key="samples", columns=["name"], data=[[name] for name in words])
+        else:
+            print(f"Sample: {', '.join(words)}")
 
     def configure_optimizers(
         self,
