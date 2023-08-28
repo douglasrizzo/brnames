@@ -95,9 +95,13 @@ def train_tune(train_config: Dict[str, Any], param_space: Dict[str, Any]):
         param_space=param_space,
     )
 
-    # NOTE letting Tune start its own cluster is buggy, so its best to manually start it
-    # with ray start --head and then init it manually with ray.init(address="auto")
-    ray.init(address="auto")
+    # attempt to connect to an existing Ray cluster, otherwise start our own
+    try:
+        print("Attempting to connect to an existing Ray cluster...")
+        ray.init(address="auto")
+    except ConnectionError:
+        print("No Ray cluster found, starting a new one...")
+        ray.init()
     results = tuner.fit()
 
     print("Best hyperparameters found were: ", results.get_best_result().config)
