@@ -143,3 +143,5 @@ weights/
 
 /wandb/
 /cluster.yaml
+
+*.txt
