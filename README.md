@@ -14,7 +14,7 @@ Some pretty fun names are generated, check the sample at [sample.txt](sample.txt
 
 ## Usage
 
-A conda environment is provided, which can be generated and activated with:\
+A conda environment is provided, which can be generated and activated with:
 
 ```sh
 conda env create
